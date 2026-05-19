@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# colab-rust setup v0.1.0
+# colab-rust setup v0.1.1
 # https://github.com/xavierforge/colab-rust
 #
 # Installs Rust + evcxr_jupyter into a Colab session.
 # Tries prebuilt binary first, falls back to source compile.
+# Self-bootstraps colab_rust.py so the user only needs one download.
 # Idempotent: safe to re-run within the same session.
+#
+# Pin to a specific version:
+#   COLAB_RUST_REF=v0.1.1 bash setup.sh
 
 set -euo pipefail
 
@@ -13,9 +17,14 @@ ok() { echo "✅ $*"; }
 warn() { echo "⚠️  $*"; }
 
 REPO="xavierforge/colab-rust"
+REF="${COLAB_RUST_REF:-main}"
+BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF}"
+
 EXPECTED_UBUNTU="22.04"
 PREBUILT_NAME="evcxr_jupyter-ubuntu22.04-glibc2.35.tar.gz"
 PREBUILT_URL="https://github.com/${REPO}/releases/download/prebuilt-latest/${PREBUILT_NAME}"
+
+log "colab-rust setup (ref: ${REF})"
 
 # ---------- 0. Sanity check: are we on the expected Colab base image? ----------
 ACTUAL_UBUNTU=$(. /etc/os-release && echo "$VERSION_ID")
@@ -78,7 +87,12 @@ else
     exit 1
 fi
 
-# ---------- 4. Final hint ----------
+# ---------- 4. Install colab_rust.py magic module ----------
+log "Installing colab_rust.py magic module..."
+curl -fsSL -o /content/colab_rust.py "${BASE_URL}/colab_rust.py"
+ok "colab_rust.py ready at /content/colab_rust.py"
+
+# ---------- 5. Final hint ----------
 cat <<'EOF'
 
 🎉 Setup complete.
