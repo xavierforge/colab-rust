@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ```python
-!wget -qO- https://github.com/xavierforge/colab-rust/archive/main.tar.gz | tar xz --strip-components=1
+!curl -fsSL -o setup.sh https://raw.githubusercontent.com/xavierforge/colab-rust/main/setup.sh
 !bash setup.sh
 %load_ext colab_rust
 ```
