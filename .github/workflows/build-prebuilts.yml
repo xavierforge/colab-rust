@@ -1,0 +1,43 @@
+name: Build prebuilt binaries
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+  push:
+    tags:
+      - "prebuilt-v*"
+  workflow_dispatch:
+
+jobs:
+  build-evcxr:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            cmake pkg-config libssl-dev libzmq3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install evcxr_jupyter
+        run: cargo install --locked --root ./out evcxr_jupyter
+
+      - name: Package
+        run: |
+          cd out/bin
+          GLIBC=$(ldd --version | head -1 | awk '{print $NF}')
+          tar czf "$GITHUB_WORKSPACE/evcxr_jupyter-ubuntu22.04-glibc${GLIBC}.tar.gz" evcxr_jupyter
+          ls -la "$GITHUB_WORKSPACE"/*.tar.gz
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: prebuilt-latest
+          files: evcxr_jupyter-*.tar.gz
+          make_latest: false
+          prerelease: true
