@@ -56,7 +56,7 @@ if [ ! -x "$HOME/.cargo/bin/evcxr_jupyter" ]; then
 
         # glibc compatibility check: --help should succeed quickly
         if "$HOME/.cargo/bin/evcxr_jupyter" --help >/dev/null 2>&1; then
-            ok "Installed prebuilt evcxr_jupyter (~60s total)"
+            ok "Installed prebuilt evcxr_jupyter"
         else
             warn "Prebuilt binary failed to run, removing and falling back."
             rm -f "$HOME/.cargo/bin/evcxr_jupyter"
