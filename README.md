@@ -1,16 +1,22 @@
 # colab-rust
 
-> Run Rust on Google Colab in ~60 seconds, with prebuilt binaries auto-updated by CI.
+> Run Rust on Google Colab in **~17 seconds**. Prebuilt binaries, auto-updated weekly via CI.
+
+_Measured on Colab free tier after the `prebuilt-latest` release is published. Source-fallback (if prebuilt is unavailable) takes ~10 minutes._
 
 [![Build prebuilts](https://github.com/xavierforge/colab-rust/actions/workflows/build-prebuilts.yml/badge.svg)](https://github.com/xavierforge/colab-rust/actions/workflows/build-prebuilts.yml)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/01_hello.ipynb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+## Quick Start
 
 ```python
 !curl -fsSL -o setup.sh https://raw.githubusercontent.com/xavierforge/colab-rust/main/setup.sh
 !bash setup.sh
 %load_ext colab_rust
 ```
+
+![Setup completes in ~17 seconds](docs/screenshots/setup.png)
 
 ```rust
 %%rust
@@ -19,8 +25,10 @@ let sum: i32 = (1..=100).sum();
 println!("Sum 1..100 = {sum}");
 ```
 
-That's the entire setup. State persists across `%%rust` cells, you can mix
-freely with Python, and crates work via `:dep`:
+![%%rust cell magic in action](docs/screenshots/hello.png)
+
+State persists across `%%rust` cells, you can mix freely with Python in the
+same notebook, and crates work via `:dep`:
 
 ```rust
 %%rust
@@ -28,6 +36,55 @@ freely with Python, and crates work via `:dep`:
 use rand::Rng;
 rand::thread_rng().gen_range(1..=100)
 ```
+
+## How it compares
+
+Two earlier approaches exist:
+
+- **[wiseaidev's gist](https://gist.github.com/wiseaidev/2af6bef753d48565d11bcd478728c979)**
+  installs a prebuilt evcxr via Nix and switches the Colab runtime to a
+  Rust kernel through an IPC proxy. It sets up in ~2 minutes and works
+  reliably — but only on the **CPU runtime**; on a GPU runtime the proxy
+  fails to connect. Because it replaces the Python kernel, you also can't
+  mix Python and Rust in one notebook.
+- **[korakot's gist](https://gist.github.com/korakot/ae95315ea6a3a3b33ee26203998a59a3)**
+  is a kernel-switch variant that's reportedly no longer working on
+  current Colab.
+
+`colab-rust` takes a different route:
+
+- **Prebuilt via GitHub Releases, not Nix.** GitHub Actions compiles
+  `evcxr_jupyter` once a week on `ubuntu-22.04` (matching Colab's glibc
+  2.35) and publishes it as a Release asset; `setup.sh` just downloads it
+  (~17s). Compiling from source takes ~11 minutes — that's the cost we
+  pre-pay so you don't have to. If the download fails, setup falls back to
+  source compilation automatically.
+- **A subprocess, not a kernel switch.** You stay on the Python runtime;
+  evcxr runs as a subprocess via `jupyter_client`, exposed through a
+  `%%rust` magic. This is why it works on **GPU runtimes** and why you can
+  mix Python and Rust in the same notebook with errors staying visible.
+
+Benefits in short:
+
+- **Mix languages** — Python loads data, Rust crunches, Python plots.
+- **State persists** across `%%rust` cells, like a real REPL.
+- **GPU runtimes work** — verified Rust → CUDA execution on Colab's T4
+  (a candle matmul lands on `cuda:0`).
+
+Limitations:
+
+- **Output is buffered, not streamed.** evcxr compiles each cell into a
+  binary and flushes stdout when it finishes, so a loop like
+  `for i in 0..1000 { println!("{i}"); }` prints all at once at the end,
+  not line by line.
+- **Interrupting is shallow.** Pressing stop raises `KeyboardInterrupt`
+  in the Python front-end, but the evcxr subprocess keeps running its
+  current cell, and its buffered output can surface at the start of your
+  next `%%rust` cell. To fully stop, reset the kernel.
+- **Python-based highlighting only.** Colab colors strings and numbers in
+  `%%rust` cells but doesn't recognize Rust keywords (`fn`, `let`,
+  `match`). For full IDE support, write a Cargo project in `/content/`
+  and run it with `!cargo run`.
 
 ## Why this exists
 
@@ -38,80 +95,8 @@ the evcxr maintainer wrote:
 > streamlined somewhat. e.g. do automatic builds pushed to Google Drive."
 
 This repo implements that idea, with GitHub Actions + GitHub Releases
-instead of Google Drive. Stable URLs, no auth, version history,
+instead of Google Drive: stable URLs, no auth, version history, and an
 automatic weekly refresh.
-
-The result: **~11 minute cold setup → ~60 second cold setup**.
-
-## What's different from existing approaches
-
-Most prior approaches (e.g.
-[wiseaidev's gist](https://gist.github.com/wiseaidev/2af6bef753d48565d11bcd478728c979),
-[korakot's gist](https://gist.github.com/korakot/ae95315ea6a3a3b33ee26203998a59a3))
-take one of two paths:
-
-1. **Switch Colab runtime to a "Rust kernel"** via an IPC proxy.
-   This is fragile — Colab's IPC proxy for non-Python kernels gets
-   stuck on connect more often than it works.
-
-2. **`cargo install evcxr_jupyter` every session.**
-   Reliable but slow (~10-11 minutes on Colab's 2-vCPU runners).
-
-`colab-rust` takes a third path:
-
-- **Stay on the Python runtime.** Spin up evcxr as a subprocess via
-  `jupyter_client`. A `%%rust` cell magic dispatches code to it.
-- **Don't compile on the user's machine.** GitHub Actions builds the
-  evcxr_jupyter binary on `ubuntu-22.04` (matching Colab's glibc 2.35)
-  and publishes it as a GitHub Release asset.
-
-Benefits:
-
-- **Mix languages** — Python loads data, Rust crunches, Python plots.
-- **State persists** across `%%rust` cells, just like a real REPL.
-- **Errors are visible** — no IPC layer swallowing stderr.
-- **Free Colab works** — no GPU runtime required for CPU-only Rust.
-
-Trade-off: no Rust syntax highlighting in Colab cells, since the
-editor sees `%%rust` as a magic line in a Python cell. For full IDE
-experience, write a Cargo project in `/content/` and use `!cargo run`.
-
-## How it works
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Google Colab (Python runtime, Ubuntu 22.04, glibc 2.35)    │
-│                                                             │
-│  ┌────────────────┐         ┌──────────────────────┐        │
-│  │ Python kernel  │ ───────▶│ evcxr_jupyter (rust) │        │
-│  │ (your cells)   │ ZMQ msg │ subprocess           │        │
-│  └────────────────┘ via JC  └──────────────────────┘        │
-│         ▲                            │                      │
-│         │                            │ compiles & runs      │
-│         │                            ▼                      │
-│         │                   ┌────────────────┐              │
-│         └─── %%rust ──────  │  rustc / cargo │              │
-│              cell magic     │  (stable)      │              │
-│                             └────────────────┘              │
-└─────────────────────────────────────────────────────────────┘
-                              ▲
-                              │ wget tarball
-                              │
-              ┌───────────────┴───────────────┐
-              │  GitHub Releases              │
-              │  prebuilt-latest tag          │
-              │  evcxr_jupyter-ubuntu22.04-   │
-              │     glibc2.35.tar.gz          │
-              └───────────────────────────────┘
-                              ▲
-                              │ weekly auto-build
-                              │
-              ┌───────────────┴───────────────┐
-              │  GitHub Actions (ubuntu-22.04)│
-              │  cargo install --locked       │
-              │     evcxr_jupyter             │
-              └───────────────────────────────┘
-```
 
 ## GPU / heavy crates
 
@@ -145,8 +130,7 @@ drive.mount('/content/drive')
     -C /content/myproject
 ```
 
-See [examples/02_candle_gpu.ipynb](examples/02_candle_gpu.ipynb)
-(coming in v0.2) for a worked example.
+A worked candle GPU example is coming in v0.2 (see roadmap).
 
 ## Tested on
 
@@ -155,9 +139,9 @@ See [examples/02_candle_gpu.ipynb](examples/02_candle_gpu.ipynb)
 - evcxr_jupyter 0.21.1
 - Rust stable (1.80+)
 
-If you encounter `GLIBC_X.YZ not found` errors, your Colab base image has
-probably been upgraded — please open an issue. Setup will automatically
-fall back to source compilation in that case.
+If you hit `GLIBC_X.YZ not found`, your Colab base image has probably been
+upgraded — please open an issue. Setup falls back to source compilation in
+that case.
 
 ## Roadmap
 
@@ -172,7 +156,7 @@ detail.
 
 ## Contributing
 
-PRs welcome. The most useful contributions right now:
+PRs welcome. Most useful right now:
 
 - Test on Colab Pro / Pro+ runtimes (A100, V100, L4) and report any
   glibc / kernel registration issues.
