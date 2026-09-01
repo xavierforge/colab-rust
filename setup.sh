@@ -2,6 +2,9 @@
 # colab-rust setup v0.1.1
 # https://github.com/xavierforge/colab-rust
 #
+# Prebuilt: evcxr_jupyter 0.22.0 (built 2026-09-01 on ubuntu-22.04 / glibc 2.35;
+# verified on Colab Ubuntu 22.04.5, Rust stable 1.98, install 16-18s).
+#
 # Installs Rust + evcxr_jupyter into a Colab session.
 # Tries prebuilt binary first, falls back to source compile.
 # Self-bootstraps colab_rust.py so the user only needs one download.

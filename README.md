@@ -2,7 +2,7 @@
 
 > Run Rust on Google Colab in **~17 seconds**. Prebuilt binaries, auto-updated weekly via CI.
 
-_Measured on Colab free tier after the `prebuilt-latest` release is published. Source-fallback (if prebuilt is unavailable) takes ~10 minutes._
+_Measured on Colab free tier after the `prebuilt-latest` release is published; last verified 2026-09-01 (16-18s across CPU and T4 runtimes). Source-fallback (if prebuilt is unavailable) takes ~10 minutes._
 
 [![Build prebuilts](https://github.com/xavierforge/colab-rust/actions/workflows/build-prebuilts.yml/badge.svg)](https://github.com/xavierforge/colab-rust/actions/workflows/build-prebuilts.yml)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/01_hello.ipynb)
@@ -136,8 +136,8 @@ A worked candle GPU example is coming in v0.2 (see roadmap).
 
 - Colab free tier (Python 3.12, Ubuntu 22.04.5 LTS, glibc 2.35)
 - Colab T4 GPU runtime (verified candle CUDA matmul works)
-- evcxr_jupyter 0.21.1
-- Rust stable (1.80+)
+- evcxr_jupyter 0.22.0
+- Rust stable (1.98 at last verification; the source fallback needs ≥ 1.95, evcxr's MSRV)
 
 If you hit `GLIBC_X.YZ not found`, your Colab base image has probably been
 upgraded — please open an issue. Setup falls back to source compilation in
