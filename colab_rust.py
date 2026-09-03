@@ -47,8 +47,26 @@ class _RustSession:
         km = KernelManager(kernel_name="rust")
         km.start_kernel()
         kc = km.client()
-        kc.start_channels()
-        kc.wait_for_ready(timeout=60)
+        try:
+            kc.start_channels()
+            kc.wait_for_ready(timeout=60)
+        except BaseException as exc:
+            # The kernel process is already alive at this point; shut it
+            # down so an interrupted startup doesn't leak an orphan kernel.
+            try:
+                kc.stop_channels()
+            except Exception:
+                pass
+            try:
+                km.shutdown_kernel(now=True)
+            except Exception:
+                pass
+            if isinstance(exc, KeyboardInterrupt):
+                print(
+                    "[colab_rust] interrupted during Rust kernel startup; "
+                    "nothing ran. Just run the cell again."
+                )
+            raise
         self.km, self.kc = km, kc
 
     def execute(self, code: str, timeout: float = _DEFAULT_TIMEOUT_S) -> str:
