@@ -24,6 +24,7 @@ REF="${COLAB_RUST_REF:-main}"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF}"
 
 EXPECTED_UBUNTU="22.04"
+EXPECTED_GLIBC="2.35"
 PREBUILT_NAME="evcxr_jupyter-ubuntu22.04-glibc2.35.tar.gz"
 PREBUILT_URL="https://github.com/${REPO}/releases/download/prebuilt-latest/${PREBUILT_NAME}"
 
@@ -33,6 +34,13 @@ log "colab-rust setup (ref: ${REF})"
 ACTUAL_UBUNTU=$(. /etc/os-release && echo "$VERSION_ID")
 if [ "$ACTUAL_UBUNTU" != "$EXPECTED_UBUNTU" ]; then
     warn "Detected Ubuntu $ACTUAL_UBUNTU (expected $EXPECTED_UBUNTU)."
+    warn "Prebuilt binary may fail; will fall back to source compile."
+    warn "Please report this at https://github.com/${REPO}/issues"
+fi
+
+ACTUAL_GLIBC=$(ldd --version | head -1 | awk '{print $NF}')
+if [ "$ACTUAL_GLIBC" != "$EXPECTED_GLIBC" ]; then
+    warn "Detected glibc $ACTUAL_GLIBC (expected $EXPECTED_GLIBC)."
     warn "Prebuilt binary may fail; will fall back to source compile."
     warn "Please report this at https://github.com/${REPO}/issues"
 fi
