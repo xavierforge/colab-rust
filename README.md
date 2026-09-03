@@ -77,10 +77,13 @@ Limitations:
   binary and flushes stdout when it finishes, so a loop like
   `for i in 0..1000 { println!("{i}"); }` prints all at once at the end,
   not line by line.
-- **Interrupting is shallow.** Pressing stop raises `KeyboardInterrupt`
-  in the Python front-end, but the evcxr subprocess keeps running its
-  current cell, and its buffered output can surface at the start of your
-  next `%%rust` cell. To fully stop, reset the kernel.
+- **Interrupting costs your variables.** Pressing stop sends a real
+  interrupt to the evcxr kernel, which kills the code that is running, so
+  the cell actually stops. The price is that evcxr restarts its runtime
+  subprocess: everything you defined with `fn`, `struct`, `mod` or `:dep`
+  survives, but all variable bindings are gone and have to be re-run.
+  Requires an evcxr 0.22.0 prebuilt (anything installed from 2026-09-01
+  onwards).
 - **Python-based highlighting only.** Colab colors strings and numbers in
   `%%rust` cells but doesn't recognize Rust keywords (`fn`, `let`,
   `match`). For full IDE support, write a Cargo project in `/content/`

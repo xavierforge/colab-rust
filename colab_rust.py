@@ -32,6 +32,7 @@ from jupyter_client import KernelManager
 
 
 _DEFAULT_TIMEOUT_S = 300  # generous for cold :dep that triggers compile
+_INTERRUPT_IDLE_TIMEOUT_S = 5  # how long to let the kernel settle after an interrupt
 
 
 class _RustSession:
@@ -51,26 +52,71 @@ class _RustSession:
 
     def execute(self, code: str, timeout: float = _DEFAULT_TIMEOUT_S) -> str:
         self.ensure_started()
-        self.kc.execute(code)
+        msg_id = self.kc.execute(code)
         out = []
+        try:
+            while True:
+                try:
+                    msg = self.kc.get_iopub_msg(timeout=timeout)
+                except queue.Empty:
+                    out.append("\n[colab_rust] timeout waiting for kernel output")
+                    break
+                # Ignore anything left over from an earlier (e.g. interrupted)
+                # cell so it can't leak into this one's output.
+                if msg.get("parent_header", {}).get("msg_id") != msg_id:
+                    continue
+                mt, content = msg["msg_type"], msg["content"]
+                if mt == "stream":
+                    out.append(content["text"])
+                elif mt in ("execute_result", "display_data"):
+                    out.append(content["data"].get("text/plain", ""))
+                    if not out[-1].endswith("\n"):
+                        out.append("\n")
+                elif mt == "error":
+                    out.append("\n".join(content["traceback"]) + "\n")
+                elif mt == "status" and content["execution_state"] == "idle":
+                    break
+        except KeyboardInterrupt:
+            self._interrupt()
+            raise
+        return "".join(out)
+
+    def _interrupt(self):
+        """Stop the code the Rust kernel is currently running.
+
+        The evcxr kernel spec declares interrupt_mode="message", so this sends
+        an interrupt_request on the control channel; evcxr answers it by
+        killing the runtime subprocess executing the cell.
+        """
+        try:
+            self.km.interrupt_kernel()
+        except Exception as exc:  # kernel already gone, control channel dead, ...
+            print(f"[colab_rust] could not interrupt the Rust kernel: {exc}")
+            return
+        if not self._wait_for_idle():
+            print("[colab_rust] interrupt sent, but the kernel did not report idle")
+        print(
+            "[colab_rust] Interrupted. Variables were reset; "
+            "items (fn/struct/:dep) are kept."
+        )
+
+    def _wait_for_idle(self, timeout: float = _INTERRUPT_IDLE_TIMEOUT_S) -> bool:
+        """Drain iopub until the kernel says idle. Returns False on timeout.
+
+        Deliberately unfiltered by msg_id: the idle that follows an interrupt
+        may be parented to the interrupt_request rather than to our
+        execute_request.
+        """
         while True:
             try:
                 msg = self.kc.get_iopub_msg(timeout=timeout)
             except queue.Empty:
-                out.append("\n[colab_rust] timeout waiting for kernel output")
-                break
-            mt, content = msg["msg_type"], msg["content"]
-            if mt == "stream":
-                out.append(content["text"])
-            elif mt in ("execute_result", "display_data"):
-                out.append(content["data"].get("text/plain", ""))
-                if not out[-1].endswith("\n"):
-                    out.append("\n")
-            elif mt == "error":
-                out.append("\n".join(content["traceback"]) + "\n")
-            elif mt == "status" and content["execution_state"] == "idle":
-                break
-        return "".join(out)
+                return False
+            if (
+                msg["msg_type"] == "status"
+                and msg["content"]["execution_state"] == "idle"
+            ):
+                return True
 
     def reset(self):
         if self.km is not None:
