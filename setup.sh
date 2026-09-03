@@ -47,18 +47,13 @@ fi
 
 # ---------- 1. Rust toolchain ----------
 if ! command -v cargo >/dev/null 2>&1; then
-    log "Installing Rust (stable, minimal profile + rust-src)..."
+    log "Installing Rust (stable, minimal profile)..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
-        sh -s -- -y --default-toolchain stable --profile minimal \
-            --component rust-src --no-modify-path \
+        sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path \
             >/dev/null 2>&1
 fi
 # shellcheck disable=SC1091
 source "$HOME/.cargo/env"
-# evcxr infers the type of untyped `let` bindings with rust-analyzer, which
-# needs the standard library source (not part of the minimal profile).
-rustup component add rust-src >/dev/null 2>&1 ||
-    warn "Could not install rust-src; untyped 'let' bindings will fail in evcxr."
 ok "Rust $(rustc --version | awk '{print $2}')"
 
 # ---------- 2. evcxr_jupyter: try prebuilt, fall back to source ----------
