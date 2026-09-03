@@ -107,6 +107,7 @@ class _RustSession:
         an interrupt_request on the control channel; evcxr answers it by
         killing the runtime subprocess executing the cell.
         """
+        print("[colab_rust] interrupt requested; stopping the Rust kernel...")
         try:
             self.km.interrupt_kernel()
         except Exception as exc:  # kernel already gone, control channel dead, ...
