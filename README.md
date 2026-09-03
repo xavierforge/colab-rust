@@ -42,11 +42,18 @@ rand::thread_rng().gen_range(1..=100)
 Two earlier approaches exist:
 
 - **[wiseaidev's gist](https://gist.github.com/wiseaidev/2af6bef753d48565d11bcd478728c979)**
-  installs a prebuilt evcxr via Nix and switches the Colab runtime to a
-  Rust kernel through an IPC proxy. It sets up in 1-2 minutes and works
-  reliably — but only on the **CPU runtime**; on a GPU runtime the proxy
-  fails to connect. Because it replaces the Python kernel, you also can't
-  mix Python and Rust in one notebook.
+  installs evcxr via Nix and switches the Colab runtime to a Rust kernel.
+  Setup takes 1-3 minutes, and the script as published fails on GPU
+  runtimes (its `/opt/bin` symlink collides with a directory that exists
+  on Colab's GPU image). With that patched, a plain Rust kernel does
+  connect on a T4, but the workflow is fragile: the setup cell has to be
+  run from the Python runtime, and run twice before the kernel shows up;
+  the IPC-proxy "Rust-TCP" variant did not finish connecting in our
+  tests; and picking the wrong kernel means starting over. On the plus
+  side, a real Rust kernel gets proper Rust syntax highlighting and
+  evcxr's native rich output, which a `%%rust` cell magic has to
+  reimplement. Because it replaces the Python kernel, you also can't mix
+  Python and Rust in one notebook.
 - **[korakot's gist](https://gist.github.com/korakot/ae95315ea6a3a3b33ee26203998a59a3)**
   is a kernel-switch variant that's reportedly no longer working on
   current Colab.
@@ -61,8 +68,10 @@ Two earlier approaches exist:
   source compilation automatically.
 - **A subprocess, not a kernel switch.** You stay on the Python runtime;
   evcxr runs as a subprocess via `jupyter_client`, exposed through a
-  `%%rust` magic. This is why it works on **GPU runtimes** and why you can
-  mix Python and Rust in the same notebook with errors staying visible.
+  `%%rust` magic. You never touch Colab's runtime settings, and if the
+  Rust side wedges, `%rust_reset` restarts it in seconds instead of a
+  reinstall. You can mix Python and Rust in the same notebook with errors
+  staying visible, and it works on **GPU runtimes** the same way.
 
 Benefits in short:
 
