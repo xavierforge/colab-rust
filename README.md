@@ -79,6 +79,10 @@ Benefits in short:
 - **State persists** across `%%rust` cells, like a real REPL.
 - **GPU runtimes work** — verified Rust → CUDA execution on Colab's T4
   (a candle matmul lands on `cuda:0`).
+- **Rich output renders inline**: HTML from `evcxr_display()` and images
+  from `evcxr_image` show up as tables and pictures, not blank cells.
+- **Build progress shows in place**: a `:dep` compile displays which crate
+  cargo is on and how long it has been running, instead of a bare spinner.
 
 Limitations:
 

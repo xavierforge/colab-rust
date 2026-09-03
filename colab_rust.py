@@ -35,7 +35,7 @@ from IPython.core.magic import Magics, magics_class, cell_magic, line_magic
 from IPython.display import Pretty, display
 from jupyter_client import KernelManager
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 _DEFAULT_TIMEOUT_S = 300  # generous for cold :dep that triggers compile
 _INTERRUPT_IDLE_TIMEOUT_S = 5  # how long to let the kernel settle after an interrupt

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# colab-rust setup v0.1.1
+# colab-rust setup v0.1.3
 # https://github.com/xavierforge/colab-rust
 #
 # Prebuilt: evcxr_jupyter 0.22.0 (built 2026-09-01 on ubuntu-22.04 / glibc 2.35;
@@ -11,7 +11,7 @@
 # Idempotent: safe to re-run within the same session.
 #
 # Pin to a specific version:
-#   COLAB_RUST_REF=v0.1.1 bash setup.sh
+#   COLAB_RUST_REF=v0.1.3 bash setup.sh
 
 set -euo pipefail
 
