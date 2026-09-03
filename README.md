@@ -43,7 +43,7 @@ Two earlier approaches exist:
 
 - **[wiseaidev's gist](https://gist.github.com/wiseaidev/2af6bef753d48565d11bcd478728c979)**
   installs a prebuilt evcxr via Nix and switches the Colab runtime to a
-  Rust kernel through an IPC proxy. It sets up in ~2 minutes and works
+  Rust kernel through an IPC proxy. It sets up in 1-2 minutes and works
   reliably — but only on the **CPU runtime**; on a GPU runtime the proxy
   fails to connect. Because it replaces the Python kernel, you also can't
   mix Python and Rust in one notebook.
