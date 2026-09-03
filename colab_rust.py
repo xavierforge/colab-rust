@@ -25,27 +25,99 @@ from __future__ import annotations
 
 import queue
 import atexit
+import re
+import subprocess
+import threading
+import time
 from typing import Optional
 
 from IPython.core.magic import Magics, magics_class, cell_magic, line_magic
+from IPython.display import Pretty, display
 from jupyter_client import KernelManager
 
 __version__ = "0.1.2"
 
 _DEFAULT_TIMEOUT_S = 300  # generous for cold :dep that triggers compile
 _INTERRUPT_IDLE_TIMEOUT_S = 5  # how long to let the kernel settle after an interrupt
+_PROGRESS_AFTER_QUIET_S = 3  # cells that finish faster than this show no progress line
+
+# evcxr forwards cargo's "Compiling <crate> <version>" lines (and only those)
+# to its own stderr while a cell builds.
+_CARGO_COMPILING = re.compile(r"^\s*Compiling\s+(\S+)\s+(v\S+)")
+
+
+class _Progress:
+    """One display line, updated in place, tracking a cell's cargo build."""
+
+    def __init__(self, kernel_stderr: "queue.Queue[str]"):
+        self._lines = kernel_stderr
+        self._t0 = time.monotonic()
+        self._crates = 0
+        self._latest = ""
+        self._handle = None
+        self._rendered_at = 0.0
+
+    def _elapsed(self) -> int:
+        return int(time.monotonic() - self._t0)
+
+    def poll(self, quiet_for: float):
+        """Absorb new stderr lines; show or refresh the line if warranted."""
+        while True:
+            try:
+                line = self._lines.get_nowait()
+            except queue.Empty:
+                break
+            m = _CARGO_COMPILING.match(line)
+            if m:
+                self._crates += 1
+                self._latest = f"{m.group(1)} {m.group(2)}"
+        if self._handle is None and not self._crates and quiet_for < _PROGRESS_AFTER_QUIET_S:
+            return
+        if self._handle is not None and time.monotonic() - self._rendered_at < 1.0:
+            return
+        if self._latest:
+            self._render(f"   Compiling {self._latest}  ({self._crates} crates, {self._elapsed()}s)")
+        else:
+            self._render(f"   Working ({self._elapsed()}s)")
+
+    def finish(self):
+        if self._handle is None:
+            return
+        if self._crates:
+            self._render(f"   Compiled {self._crates} crates in {self._elapsed()}s")
+        else:
+            # Nothing worth keeping: Colab already shows the cell's run time.
+            self._render("")
+
+    def interrupted(self):
+        if self._handle is not None:
+            self._render(f"   Interrupted after {self._elapsed()}s")
+
+    def _render(self, text: str):
+        if self._handle is None:
+            self._handle = display(Pretty(text), display_id=True)
+        else:
+            self._handle.update(Pretty(text))
+        self._rendered_at = time.monotonic()
 
 
 class _RustSession:
     def __init__(self):
         self.km: Optional[KernelManager] = None
         self.kc = None
+        self._kernel_stderr: "queue.Queue[str]" = queue.Queue()
 
     def ensure_started(self):
         if self.km is not None:
             return
         km = KernelManager(kernel_name="rust")
-        km.start_kernel()
+        km.start_kernel(stderr=subprocess.PIPE)
+        self._kernel_stderr = queue.Queue()
+        threading.Thread(
+            target=self._pump_stderr,
+            args=(km.provisioner.process.stderr, self._kernel_stderr),
+            daemon=True,
+        ).start()
         kc = km.client()
         try:
             kc.start_channels()
@@ -69,21 +141,39 @@ class _RustSession:
             raise
         self.km, self.kc = km, kc
 
+    @staticmethod
+    def _pump_stderr(stream, lines: "queue.Queue[str]"):
+        # Must keep draining for the kernel's whole life: once the pipe fills
+        # up, evcxr blocks on its next stderr write and the cell hangs.
+        try:
+            for raw in iter(stream.readline, b""):
+                lines.put(raw.decode("utf-8", "replace").rstrip("\n"))
+        except (OSError, ValueError):
+            pass  # pipe closed underneath us during kernel shutdown
+
     def execute(self, code: str, timeout: float = _DEFAULT_TIMEOUT_S) -> str:
         self.ensure_started()
         msg_id = self.kc.execute(code)
         out = []
+        progress = _Progress(self._kernel_stderr)
+        last_msg_at = time.monotonic()
         try:
             while True:
                 try:
-                    msg = self.kc.get_iopub_msg(timeout=timeout)
+                    msg = self.kc.get_iopub_msg(timeout=1.0)
                 except queue.Empty:
-                    out.append("\n[colab_rust] timeout waiting for kernel output")
-                    break
+                    quiet_for = time.monotonic() - last_msg_at
+                    if quiet_for > timeout:
+                        out.append("\n[colab_rust] timeout waiting for kernel output")
+                        break
+                    progress.poll(quiet_for)
+                    continue
                 # Ignore anything left over from an earlier (e.g. interrupted)
                 # cell so it can't leak into this one's output.
                 if msg.get("parent_header", {}).get("msg_id") != msg_id:
                     continue
+                last_msg_at = time.monotonic()
+                progress.poll(0.0)
                 mt, content = msg["msg_type"], msg["content"]
                 if mt == "stream":
                     out.append(content["text"])
@@ -96,8 +186,10 @@ class _RustSession:
                 elif mt == "status" and content["execution_state"] == "idle":
                     break
         except KeyboardInterrupt:
+            progress.interrupted()
             self._interrupt()
             raise
+        progress.finish()
         return "".join(out)
 
     def _interrupt(self):
