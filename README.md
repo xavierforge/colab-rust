@@ -1,6 +1,6 @@
 # colab-rust
 
-> Run Rust on Google Colab in **~17 seconds**. Prebuilt binaries, auto-updated weekly via CI.
+> Write Rust in Google Colab with a `%%rust` cell magic: setup in **~17 seconds**, works on GPU runtimes. Prebuilt binaries, auto-updated weekly.
 
 _Measured on Colab free tier after the `prebuilt-latest` release is published; last verified 2026-09-01 (16-18s across CPU and T4 runtimes). Source-fallback (if prebuilt is unavailable) takes ~10 minutes._
 
