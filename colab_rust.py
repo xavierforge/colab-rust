@@ -94,8 +94,17 @@ class _RustSession:
         except Exception as exc:  # kernel already gone, control channel dead, ...
             print(f"[colab_rust] could not interrupt the Rust kernel: {exc}")
             return
-        if not self._wait_for_idle():
-            print("[colab_rust] interrupt sent, but the kernel did not report idle")
+        try:
+            if not self._wait_for_idle():
+                print(
+                    "[colab_rust] interrupt sent, but the kernel did not report "
+                    "idle (likely mid-compile; the compile finishes in the "
+                    "background and the next cell may wait for it)"
+                )
+        except KeyboardInterrupt:
+            # A second stop press while we were waiting for idle; the
+            # interrupt was already delivered, so just finish the notice.
+            pass
         print(
             "[colab_rust] Interrupted. Variables were reset; "
             "items (fn/struct/:dep) are kept."
