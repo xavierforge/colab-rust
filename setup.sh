@@ -101,7 +101,8 @@ fi
 # ---------- 4. Install colab_rust.py magic module ----------
 log "Installing colab_rust.py magic module..."
 curl -fsSL -o /content/colab_rust.py "${BASE_URL}/colab_rust.py"
-ok "colab_rust.py ready at /content/colab_rust.py"
+CR_VERSION=$(grep -m1 '^__version__' /content/colab_rust.py | cut -d'"' -f2 || true)
+ok "colab_rust.py ${CR_VERSION:-unknown} ready at /content/colab_rust.py (ref: ${REF})"
 
 # ---------- 5. Final hint ----------
 cat <<'EOF'

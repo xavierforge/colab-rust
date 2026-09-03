@@ -30,6 +30,7 @@ from typing import Optional
 from IPython.core.magic import Magics, magics_class, cell_magic, line_magic
 from jupyter_client import KernelManager
 
+__version__ = "0.1.2"
 
 _DEFAULT_TIMEOUT_S = 300  # generous for cold :dep that triggers compile
 _INTERRUPT_IDLE_TIMEOUT_S = 5  # how long to let the kernel settle after an interrupt
@@ -150,7 +151,7 @@ class RustMagics(Magics):
 
 def load_ipython_extension(ipython):
     ipython.register_magics(RustMagics)
-    print("✅ colab_rust loaded — use %%rust in any cell")
+    print(f"✅ colab_rust {__version__} loaded — use %%rust in any cell")
 
 
 def unload_ipython_extension(ipython):
