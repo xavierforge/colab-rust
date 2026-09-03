@@ -151,10 +151,15 @@ class _RustSession:
         except (OSError, ValueError):
             pass  # pipe closed underneath us during kernel shutdown
 
-    def execute(self, code: str, timeout: float = _DEFAULT_TIMEOUT_S) -> str:
+    def execute(self, code: str, timeout: float = _DEFAULT_TIMEOUT_S) -> list:
+        """Run one cell and return its outputs in arrival order.
+
+        Each item is either a str (stream text, error traceback) or a dict
+        {"data": <mime bundle>, "metadata": ...} for a rich result.
+        """
         self.ensure_started()
         msg_id = self.kc.execute(code)
-        out = []
+        out: list = []
         progress = _Progress(self._kernel_stderr)
         last_msg_at = time.monotonic()
         try:
@@ -178,9 +183,7 @@ class _RustSession:
                 if mt == "stream":
                     out.append(content["text"])
                 elif mt in ("execute_result", "display_data"):
-                    out.append(content["data"].get("text/plain", ""))
-                    if not out[-1].endswith("\n"):
-                        out.append("\n")
+                    out.append({"data": content["data"], "metadata": content.get("metadata", {})})
                 elif mt == "error":
                     out.append("\n".join(content["traceback"]) + "\n")
                 elif mt == "status" and content["execution_state"] == "idle":
@@ -190,7 +193,7 @@ class _RustSession:
             self._interrupt()
             raise
         progress.finish()
-        return "".join(out)
+        return out
 
     def _interrupt(self):
         """Stop the code the Rust kernel is currently running.
@@ -253,14 +256,36 @@ _session = _RustSession()
 atexit.register(_session.reset)
 
 
+def _render(chunks: list):
+    """Print text in order; hand rich mime bundles (html, png, ...) to the frontend."""
+    text: list = []
+
+    def flush():
+        if text:
+            s = "".join(text)
+            text.clear()
+            print(s, end="" if s.endswith("\n") else "\n")
+
+    for chunk in chunks:
+        if isinstance(chunk, str):
+            text.append(chunk)
+            continue
+        data = chunk["data"]
+        if set(data) <= {"text/plain"}:
+            s = data.get("text/plain", "")
+            text.append(s if s.endswith("\n") else s + "\n")
+            continue
+        flush()
+        display(data, metadata=chunk["metadata"], raw=True)
+    flush()
+
+
 @magics_class
 class RustMagics(Magics):
     @cell_magic
     def rust(self, line, cell):
         """Execute a Rust cell in the persistent evcxr kernel."""
-        output = _session.execute(cell)
-        if output:
-            print(output, end="" if output.endswith("\n") else "\n")
+        _render(_session.execute(cell))
 
     @line_magic
     def rust_reset(self, line):
