@@ -173,6 +173,10 @@ PRs welcome. Most useful right now:
   maintainers — for building the foundational REPL that everything here
   depends on, and for suggesting the auto-build approach in
   [evcxr#147](https://github.com/evcxr/evcxr/issues/147).
+- Background: the author's numba CUDA teaching series
+  ([part 1](https://xavierforge.dev/posts/numba-cuda-puzzles-1/),
+  [part 2](https://xavierforge.dev/posts/numba-cuda-puzzles-2/)), the
+  Python-side CUDA material that led to this project.
 
 ## License
 
