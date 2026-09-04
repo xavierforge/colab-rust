@@ -27,6 +27,7 @@ import queue
 import atexit
 import re
 import subprocess
+import sys
 import threading
 import time
 from typing import Optional
@@ -154,8 +155,9 @@ class _RustSession:
     def execute(self, code: str, timeout: float = _DEFAULT_TIMEOUT_S) -> list:
         """Run one cell and return its outputs in arrival order.
 
-        Each item is either a str (stream text, error traceback) or a dict
-        {"data": <mime bundle>, "metadata": ...} for a rich result.
+        Each item is a tuple: ("stdout" | "stderr", text) for stream text
+        (error tracebacks count as stderr), or ("rich", data, metadata) for
+        a mime bundle.
         """
         self.ensure_started()
         msg_id = self.kc.execute(code)
@@ -169,7 +171,7 @@ class _RustSession:
                 except queue.Empty:
                     quiet_for = time.monotonic() - last_msg_at
                     if quiet_for > timeout:
-                        out.append("\n[colab_rust] timeout waiting for kernel output")
+                        out.append(("stderr", "\n[colab_rust] timeout waiting for kernel output"))
                         break
                     progress.poll(quiet_for)
                     continue
@@ -181,11 +183,11 @@ class _RustSession:
                 progress.poll(0.0)
                 mt, content = msg["msg_type"], msg["content"]
                 if mt == "stream":
-                    out.append(content["text"])
+                    out.append((content["name"], content["text"]))
                 elif mt in ("execute_result", "display_data"):
-                    out.append({"data": content["data"], "metadata": content.get("metadata", {})})
+                    out.append(("rich", content["data"], content.get("metadata", {})))
                 elif mt == "error":
-                    out.append("\n".join(content["traceback"]) + "\n")
+                    out.append(("stderr", "\n".join(content["traceback"]) + "\n"))
                 elif mt == "status" and content["execution_state"] == "idle":
                     break
         except KeyboardInterrupt:
@@ -257,26 +259,36 @@ atexit.register(_session.reset)
 
 
 def _render(chunks: list):
-    """Print text in order; hand rich mime bundles (html, png, ...) to the frontend."""
-    text: list = []
+    """Replay a cell's outputs in order: stdout and stderr on their own streams,
+    rich mime bundles (html, png, ...) handed to the frontend."""
+    buf: list = []
+    buf_stream = "stdout"
 
     def flush():
-        if text:
-            s = "".join(text)
-            text.clear()
-            print(s, end="" if s.endswith("\n") else "\n")
+        if buf:
+            s = "".join(buf)
+            buf.clear()
+            target = sys.stdout if buf_stream == "stdout" else sys.stderr
+            print(s, end="" if s.endswith("\n") else "\n", file=target, flush=True)
+
+    def text(stream, s):
+        nonlocal buf_stream
+        if stream != buf_stream:
+            flush()
+            buf_stream = stream
+        buf.append(s)
 
     for chunk in chunks:
-        if isinstance(chunk, str):
-            text.append(chunk)
+        if chunk[0] != "rich":
+            text(chunk[0], chunk[1])
             continue
-        data = chunk["data"]
+        data, metadata = chunk[1], chunk[2]
         if set(data) <= {"text/plain"}:
             s = data.get("text/plain", "")
-            text.append(s if s.endswith("\n") else s + "\n")
+            text("stdout", s if s.endswith("\n") else s + "\n")
             continue
         flush()
-        display(data, metadata=chunk["metadata"], raw=True)
+        display(data, metadata=metadata, raw=True)
     flush()
 
 
