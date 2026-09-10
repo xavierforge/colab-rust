@@ -23,24 +23,20 @@ REPO="xavierforge/colab-rust"
 REF="${COLAB_RUST_REF:-main}"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF}"
 
-EXPECTED_UBUNTU="22.04"
-EXPECTED_GLIBC="2.35"
+PREBUILT_UBUNTU="22.04"   # image the prebuilt is compiled on
+MIN_GLIBC="2.35"          # what that binary needs; newer is fine
 PREBUILT_NAME="evcxr_jupyter-ubuntu22.04-glibc2.35.tar.gz"
 PREBUILT_URL="https://github.com/${REPO}/releases/download/prebuilt-latest/${PREBUILT_NAME}"
 
 log "colab-rust setup (ref: ${REF})"
 
-# ---------- 0. Sanity check: are we on the expected Colab base image? ----------
+# ---------- 0. Sanity check: can the prebuilt run on this image? ----------
 ACTUAL_UBUNTU=$(. /etc/os-release && echo "$VERSION_ID")
-if [ "$ACTUAL_UBUNTU" != "$EXPECTED_UBUNTU" ]; then
-    warn "Detected Ubuntu $ACTUAL_UBUNTU (expected $EXPECTED_UBUNTU)."
-    warn "Prebuilt binary may fail; will fall back to source compile."
-    warn "Please report this at https://github.com/${REPO}/issues"
-fi
-
 ACTUAL_GLIBC=$(ldd --version | head -1 | awk '{print $NF}')
-if [ "$ACTUAL_GLIBC" != "$EXPECTED_GLIBC" ]; then
-    warn "Detected glibc $ACTUAL_GLIBC (expected $EXPECTED_GLIBC)."
+log "Ubuntu $ACTUAL_UBUNTU, glibc $ACTUAL_GLIBC (prebuilt: Ubuntu $PREBUILT_UBUNTU, needs glibc >= $MIN_GLIBC)"
+# glibc is backwards compatible, so only an older glibc is a problem.
+if [ "$(printf '%s\n' "$MIN_GLIBC" "$ACTUAL_GLIBC" | sort -V | head -1)" != "$MIN_GLIBC" ]; then
+    warn "glibc $ACTUAL_GLIBC is older than the $MIN_GLIBC the prebuilt needs."
     warn "Prebuilt binary may fail; will fall back to source compile."
     warn "Please report this at https://github.com/${REPO}/issues"
 fi
