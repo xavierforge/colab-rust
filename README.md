@@ -93,8 +93,9 @@ Limitations:
 - **Interrupting costs your variables.** Pressing stop sends a real
   interrupt to the evcxr kernel, which kills the code that is running, so
   the cell actually stops. The price is that evcxr restarts its runtime
-  subprocess: everything you defined with `fn`, `struct`, `mod` or `:dep`
-  survives, but all variable bindings are gone and have to be re-run.
+  subprocess: everything earlier cells defined with `fn`, `struct`, `mod` or
+  `:dep` survives, but all variable bindings are gone, and so is anything the
+  interrupted cell itself was defining.
   Requires an evcxr 0.22.0 prebuilt (anything installed from 2026-09-01
   onwards).
 - **Python-based highlighting only.** Colab colors strings and numbers in
@@ -125,7 +126,7 @@ Approximate cold-build times on Colab T4:
 
 | Crate                            | Cold build | Notes                                  |
 | -------------------------------- | ---------- | -------------------------------------- |
-| `cudarc`                         | ~30s       | Pure FFI binding, no CUDA compile      |
+| `cudarc`                         | 10s        | Measured 2026-09-10 on a T4; no NVCC   |
 | `candle-core` (minimal cuda)     | ~8min      | Compiles essential kernels             |
 | `candle-core` (default features) | ~11min     | Compiles GGUF / flash-attn kernels too |
 | `tch-rs` (libtorch)              | ~3min      | Downloads prebuilt libtorch            |
@@ -146,23 +147,25 @@ drive.mount('/content/drive')
     -C /content/myproject
 ```
 
-A worked candle GPU example is coming in v0.2 (see roadmap).
+[examples/03_cudarc_gpu.ipynb](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/03_cudarc_gpu.ipynb) compiles a CUDA kernel with nvrtc and launches it from a `%%rust` cell on a T4: `:dep cudarc` builds in 10 s, the kernel adds a million floats in 2 s wall time including the PTX compile.
+
+A worked candle GPU example is still on the roadmap.
 
 ## Tested on
 
-- Colab free tier (Python 3.12, Ubuntu 22.04.5 LTS, glibc 2.35)
-- Colab T4 GPU runtime (verified candle CUDA matmul works)
+- Colab free tier, CPU and T4 runtimes, on the Ubuntu 24.04 image (glibc 2.39, CUDA 12.8, driver 580) as of 2026-09-10; the 22.04-built prebuilt runs on it unchanged. Also verified on the previous 22.04.5 image (glibc 2.35) through 2026-09-04.
+- On the T4: cudarc kernel launch from a `%%rust` cell, and a candle CUDA matmul from a Cargo project
 - evcxr_jupyter 0.22.0
 - Rust stable (1.98 at last verification; the source fallback needs ≥ 1.95, evcxr's MSRV)
 
-If you hit `GLIBC_X.YZ not found`, your Colab base image has probably been
-upgraded — please open an issue. Setup falls back to source compilation in
-that case.
+The prebuilt is compiled on Ubuntu 22.04 against glibc 2.35, so it runs on any newer Colab image as well; setup only warns and falls back to source compilation if it finds an older glibc.
 
 ## Roadmap
 
 - [x] v0.1.0 — Prebuilt evcxr_jupyter, `%%rust` magic, weekly auto-build
-- [ ] v0.2 — `cudarc` GPU quickstart, `target/` Drive cache helper
+- [x] v0.1.2 to v0.1.4 — Real interrupt, build progress, rich output, separate stderr
+- [x] `cudarc` GPU quickstart (`examples/03_cudarc_gpu.ipynb`)
+- [ ] v0.2 — `target/` Drive cache helper
 - [ ] v0.3 — Ubuntu version auto-detection + matrix build (24.04 readiness)
 - [ ] v1.0 — Experimental `cuda-oxide` support (depends on LLVM 21+
       becoming installable in Colab without breaking the kernel)
