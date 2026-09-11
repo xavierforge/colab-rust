@@ -37,6 +37,25 @@ use rand::Rng;
 rand::thread_rng().gen_range(1..=100)
 ```
 
+## Rich output and build progress
+
+A `:dep` compile shows what cargo is doing instead of a bare spinner, and anything evcxr can display renders inline.
+
+![Build progress while :dep compiles, then an image renders](docs/screenshots/rich-output.gif)
+
+```rust
+%%rust
+:dep image = "0.23"
+:dep evcxr_image = "1.1"
+use evcxr_image::ImageDisplay;
+
+image::ImageBuffer::from_fn(256, 256, |x, y| {
+    if (x as i32 - y as i32).abs() < 3 { image::Rgb([0, 0, 255]) } else { image::Rgb([0, 0, 0]) }
+})
+```
+
+HTML from `evcxr_display()` renders as well, stdout and stderr keep their own streams, and pressing stop actually interrupts the running cell. [examples/02_rich_output.ipynb](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/02_rich_output.ipynb) walks through each of these.
+
 ## How it compares
 
 Two earlier approaches exist:
