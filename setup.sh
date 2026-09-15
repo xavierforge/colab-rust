@@ -42,7 +42,10 @@ if [ "$(printf '%s\n' "$MIN_GLIBC" "$ACTUAL_GLIBC" | sort -V | head -1)" != "$MI
 fi
 
 # ---------- 1. Rust toolchain ----------
-if ! command -v cargo >/dev/null 2>&1; then
+# Check the file, not PATH: each Colab `!` line is a fresh shell without
+# ~/.cargo/env, so `command -v cargo` misses an installed toolchain and a
+# re-run would go through rustup-init again.
+if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
     log "Installing Rust (stable, minimal profile)..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
         sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path \
