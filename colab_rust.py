@@ -223,7 +223,7 @@ class _RustSession:
             pass
         print(
             "[colab_rust] Interrupted. Variables were reset; "
-            "items (fn/struct/:dep) are kept."
+            "items (fn/struct/:dep) from earlier cells are kept."
         )
 
     def _wait_for_idle(self, timeout: float = _INTERRUPT_IDLE_TIMEOUT_S) -> bool:
