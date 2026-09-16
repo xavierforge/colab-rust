@@ -42,10 +42,13 @@ if [ "$(printf '%s\n' "$MIN_GLIBC" "$ACTUAL_GLIBC" | sort -V | head -1)" != "$MI
 fi
 
 # ---------- 1. Rust toolchain ----------
-# Check the file, not PATH: each Colab `!` line is a fresh shell without
+# Ask the binary, not PATH: each Colab `!` line is a fresh shell without
 # ~/.cargo/env, so `command -v cargo` misses an installed toolchain and a
-# re-run would go through rustup-init again.
-if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+# re-run would go through rustup-init again. Running `cargo --version` also
+# catches a rustup that exists but has no default toolchain (for example one
+# installed with `--default-toolchain none`), where the proxy binary is
+# present but every cargo call fails.
+if ! "$HOME/.cargo/bin/cargo" --version >/dev/null 2>&1; then
     log "Installing Rust (stable, minimal profile)..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
         sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path \
@@ -53,7 +56,13 @@ if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
 fi
 # shellcheck disable=SC1091
 source "$HOME/.cargo/env"
-ok "Rust $(rustc --version | awk '{print $2}')"
+RUST_VERSION=$(rustc --version 2>/dev/null | awk '{print $2}')
+if [ -z "$RUST_VERSION" ]; then
+    echo "❌ rustc is not runnable after setup. Output of 'rustc --version':"
+    rustc --version || true
+    exit 1
+fi
+ok "Rust $RUST_VERSION"
 
 # ---------- 2. evcxr_jupyter: try prebuilt, fall back to source ----------
 if [ ! -x "$HOME/.cargo/bin/evcxr_jupyter" ]; then
