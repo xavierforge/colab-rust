@@ -71,7 +71,7 @@ jobs:
           set -euo pipefail
           # The clone carries the toolchain pin; this step runs outside it, so ask the nightly explicitly.
           HOST=$(rustup run "$CHANNEL" rustc -vV | sed -n 's/^host: //p')
-          GLIBC=$(ldd --version | head -1 | awk '{print $NF}')
+          GLIBC=$(ldd --version | awk 'NR==1{print $NF}')
           SHORT=${REV:0:12}
           NAME="cuda-oxide-${SHORT}-${CHANNEL}-${HOST}-glibc${GLIBC}"
           STAGE="$RUNNER_TEMP/$NAME"
