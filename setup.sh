@@ -14,6 +14,7 @@
 #   COLAB_RUST_REF=v0.1.6 bash setup.sh
 
 set -euo pipefail
+trap 'echo "❌ setup.sh aborted at line $LINENO: $BASH_COMMAND (exit $?)" >&2' ERR
 
 log() { echo "▶ $*"; }
 ok() { echo "✅ $*"; }
@@ -32,7 +33,7 @@ log "colab-rust setup (ref: ${REF})"
 
 # ---------- 0. Sanity check: can the prebuilt run on this image? ----------
 ACTUAL_UBUNTU=$(. /etc/os-release && echo "$VERSION_ID")
-ACTUAL_GLIBC=$(ldd --version | head -1 | awk '{print $NF}')
+ACTUAL_GLIBC=$(ldd --version | awk 'NR==1{print $NF}')  # awk reads it all: head -1 can SIGPIPE ldd and trip pipefail
 log "Ubuntu $ACTUAL_UBUNTU, glibc $ACTUAL_GLIBC (prebuilt: Ubuntu $PREBUILT_UBUNTU, needs glibc >= $MIN_GLIBC)"
 # glibc is backwards compatible, so only an older glibc is a problem.
 if [ "$(printf '%s\n' "$MIN_GLIBC" "$ACTUAL_GLIBC" | sort -V | head -1)" != "$MIN_GLIBC" ]; then

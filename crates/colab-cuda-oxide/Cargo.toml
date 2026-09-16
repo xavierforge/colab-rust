@@ -1,0 +1,17 @@
+[package]
+name = "colab-cuda-oxide"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Load cuda-oxide kernels compiled inside an evcxr %%rust cell on Google Colab"
+repository = "https://github.com/xavierforge/colab-rust"
+publish = false
+
+# Standalone crate: setup-cuda-oxide.sh copies this directory next to the
+# pinned cuda-oxide checkout and notebooks pull it in with a path `:dep`.
+[workspace]
+
+[dependencies]
+cuda-core = "0.3.1"
+libc = "0.2"
+thiserror = "2"
