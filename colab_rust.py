@@ -41,6 +41,11 @@ __version__ = "0.2.0"
 _DEFAULT_TIMEOUT_S = 300  # generous for cold :dep that triggers compile
 _INTERRUPT_IDLE_TIMEOUT_S = 5  # how long to let the kernel settle after an interrupt
 _PROGRESS_AFTER_QUIET_S = 3  # cells that finish faster than this show no progress line
+# evcxr reports idle once the runtime's stdout has drained, but its stderr is
+# forwarded by a separate thread with no such wait, so a line printed with
+# eprintln! right before the cell ends can reach iopub after the idle status.
+# Keep reading for this long after idle (extended by every late message).
+_POST_IDLE_GRACE_S = 0.2
 
 # evcxr forwards cargo's "Compiling <crate> <version>" lines (and only those)
 # to its own stderr while a cell builds.
@@ -174,11 +179,20 @@ class _RustSession:
 
         progress = _Progress(self._kernel_stderr)
         last_msg_at = time.monotonic()
+        idle_at = None  # set once the kernel reports idle; then only the grace period remains
         try:
             while True:
+                if idle_at is not None:
+                    wait = _POST_IDLE_GRACE_S - (time.monotonic() - idle_at)
+                    if wait <= 0:
+                        break
+                else:
+                    wait = 1.0
                 try:
-                    msg = self.kc.get_iopub_msg(timeout=1.0)
+                    msg = self.kc.get_iopub_msg(timeout=wait)
                 except queue.Empty:
+                    if idle_at is not None:
+                        break
                     quiet_for = time.monotonic() - last_msg_at
                     if quiet_for > timeout:
                         emit(("stderr", "\n[colab_rust] timeout waiting for kernel output"))
@@ -190,6 +204,8 @@ class _RustSession:
                 if msg.get("parent_header", {}).get("msg_id") != msg_id:
                     continue
                 last_msg_at = time.monotonic()
+                if idle_at is not None:
+                    idle_at = last_msg_at  # a late message restarts the grace period
                 progress.poll(0.0)
                 mt, content = msg["msg_type"], msg["content"]
                 if mt == "stream":
@@ -199,7 +215,7 @@ class _RustSession:
                 elif mt == "error":
                     emit(("stderr", "\n".join(content["traceback"]) + "\n"))
                 elif mt == "status" and content["execution_state"] == "idle":
-                    break
+                    idle_at = time.monotonic()
         except KeyboardInterrupt:
             progress.interrupted()
             self._interrupt()
