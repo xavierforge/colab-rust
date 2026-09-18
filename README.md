@@ -54,7 +54,7 @@ image::ImageBuffer::from_fn(256, 256, |x, y| {
 })
 ```
 
-HTML from `evcxr_display()` renders as well, stdout and stderr keep their own streams, and pressing stop actually interrupts the running cell. [examples/02_rich_output.ipynb](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/02_rich_output.ipynb) walks through each of these.
+HTML from `evcxr_display()` renders as well, stdout and stderr keep their own streams and show up line by line while the cell runs, and pressing stop actually interrupts the running cell. [examples/02_rich_output.ipynb](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/02_rich_output.ipynb) walks through each of these.
 
 ## How it compares
 
@@ -105,10 +105,6 @@ Benefits in short:
 
 Limitations:
 
-- **Output is buffered, not streamed.** evcxr compiles each cell into a
-  binary and flushes stdout when it finishes, so a loop like
-  `for i in 0..1000 { println!("{i}"); }` prints all at once at the end,
-  not line by line.
 - **Interrupting costs your variables.** Pressing stop sends a real
   interrupt to the evcxr kernel, which kills the code that is running, so
   the cell actually stops. The price is that evcxr restarts its runtime

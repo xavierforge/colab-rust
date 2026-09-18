@@ -152,16 +152,26 @@ class _RustSession:
         except (OSError, ValueError):
             pass  # pipe closed underneath us during kernel shutdown
 
-    def execute(self, code: str, timeout: float = _DEFAULT_TIMEOUT_S) -> list:
+    def execute(
+        self, code: str, timeout: float = _DEFAULT_TIMEOUT_S, on_chunk=None
+    ) -> list:
         """Run one cell and return its outputs in arrival order.
 
         Each item is a tuple: ("stdout" | "stderr", text) for stream text
         (error tracebacks count as stderr), or ("rich", data, metadata) for
-        a mime bundle.
+        a mime bundle. `on_chunk`, if given, sees each item the moment it
+        arrives, so a long-running cell can show output as it goes instead
+        of after it finishes.
         """
         self.ensure_started()
         msg_id = self.kc.execute(code)
         out: list = []
+
+        def emit(chunk):
+            out.append(chunk)
+            if on_chunk is not None:
+                on_chunk(chunk)
+
         progress = _Progress(self._kernel_stderr)
         last_msg_at = time.monotonic()
         try:
@@ -171,7 +181,7 @@ class _RustSession:
                 except queue.Empty:
                     quiet_for = time.monotonic() - last_msg_at
                     if quiet_for > timeout:
-                        out.append(("stderr", "\n[colab_rust] timeout waiting for kernel output"))
+                        emit(("stderr", "\n[colab_rust] timeout waiting for kernel output"))
                         break
                     progress.poll(quiet_for)
                     continue
@@ -183,11 +193,11 @@ class _RustSession:
                 progress.poll(0.0)
                 mt, content = msg["msg_type"], msg["content"]
                 if mt == "stream":
-                    out.append((content["name"], content["text"]))
+                    emit((content["name"], content["text"]))
                 elif mt in ("execute_result", "display_data"):
-                    out.append(("rich", content["data"], content.get("metadata", {})))
+                    emit(("rich", content["data"], content.get("metadata", {})))
                 elif mt == "error":
-                    out.append(("stderr", "\n".join(content["traceback"]) + "\n"))
+                    emit(("stderr", "\n".join(content["traceback"]) + "\n"))
                 elif mt == "status" and content["execution_state"] == "idle":
                     break
         except KeyboardInterrupt:
@@ -258,38 +268,51 @@ _session = _RustSession()
 atexit.register(_session.reset)
 
 
-def _render(chunks: list):
-    """Replay a cell's outputs in order: stdout and stderr on their own streams,
-    rich mime bundles (html, png, ...) handed to the frontend."""
-    buf: list = []
-    buf_stream = "stdout"
+class _Renderer:
+    """Show a cell's outputs as they arrive: stdout and stderr on their own
+    streams, rich mime bundles (html, png, ...) handed to the frontend.
 
-    def flush():
-        if buf:
-            s = "".join(buf)
-            buf.clear()
-            target = sys.stdout if buf_stream == "stdout" else sys.stderr
-            print(s, end="" if s.endswith("\n") else "\n", file=target, flush=True)
+    evcxr sends one stream message per line, so a `println!` loop shows up
+    line by line. Text without a trailing newline is printed as is and the
+    newline is added when the stream changes or the cell ends, so a
+    `print!` split across messages still lands on one line.
+    """
 
-    def text(stream, s):
-        nonlocal buf_stream
-        if stream != buf_stream:
-            flush()
-            buf_stream = stream
-        buf.append(s)
+    def __init__(self):
+        self._stream = "stdout"
+        self._open_line = False
 
-    for chunk in chunks:
+    def _target(self):
+        return sys.stdout if self._stream == "stdout" else sys.stderr
+
+    def _end_line(self):
+        if self._open_line:
+            print(file=self._target(), flush=True)
+            self._open_line = False
+
+    def _text(self, stream: str, s: str):
+        if not s:
+            return
+        if stream != self._stream:
+            self._end_line()
+            self._stream = stream
+        print(s, end="", file=self._target(), flush=True)
+        self._open_line = not s.endswith("\n")
+
+    def emit(self, chunk):
         if chunk[0] != "rich":
-            text(chunk[0], chunk[1])
-            continue
+            self._text(chunk[0], chunk[1])
+            return
         data, metadata = chunk[1], chunk[2]
         if set(data) <= {"text/plain"}:
             s = data.get("text/plain", "")
-            text("stdout", s if s.endswith("\n") else s + "\n")
-            continue
-        flush()
+            self._text("stdout", s if s.endswith("\n") else s + "\n")
+            return
+        self._end_line()
         display(data, metadata=metadata, raw=True)
-    flush()
+
+    def close(self):
+        self._end_line()
 
 
 @magics_class
@@ -297,7 +320,11 @@ class RustMagics(Magics):
     @cell_magic
     def rust(self, line, cell):
         """Execute a Rust cell in the persistent evcxr kernel."""
-        _render(_session.execute(cell))
+        renderer = _Renderer()
+        try:
+            _session.execute(cell, on_chunk=renderer.emit)
+        finally:
+            renderer.close()
 
     @line_magic
     def rust_reset(self, line):
