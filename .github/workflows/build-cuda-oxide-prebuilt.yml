@@ -3,6 +3,10 @@ name: Build cuda-oxide prebuilt
 # Builds cargo-oxide and librustc_codegen_cuda.so for one exact cuda-oxide
 # commit, on the same ubuntu-22.04 / glibc 2.35 baseline as the evcxr
 # prebuilt, and publishes them under an immutable per-commit release tag.
+# cuda-oxide is fetched from NVIDIA/cuda-rust, where it has lived since
+# 2026-09-30. Commits from after the move keep the crates under cuda-oxide/
+# instead of the checkout root; this workflow still expects the pre-move
+# layout and needs that adjustment when the pin moves.
 # setup-cuda-oxide.sh downloads the asset whose name matches the commit and
 # nightly it is about to use, and falls back to a source build otherwise.
 #
@@ -13,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       cuda_oxide_rev:
-        description: "Full cuda-oxide commit SHA to build"
+        description: "Full cuda-oxide commit SHA (in NVIDIA/cuda-rust) to build"
         required: true
         default: "6abfaa091e29a6275c1943895bfbc97efa306e98"
 
@@ -31,7 +35,7 @@ jobs:
           [[ "$REV" =~ ^[0-9a-f]{40}$ ]] || { echo "cuda_oxide_rev must be a full 40-char SHA"; exit 1; }
           git init -q cuda-oxide
           cd cuda-oxide
-          git remote add origin https://github.com/NVlabs/cuda-oxide.git
+          git remote add origin https://github.com/NVIDIA/cuda-rust.git
           git fetch -q --depth 1 origin "$REV"
           git checkout -q FETCH_HEAD
           echo "cuda-oxide $(git rev-parse --short=12 HEAD) $(git log -1 --format=%cd --date=short)"

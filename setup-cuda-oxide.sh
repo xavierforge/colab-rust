@@ -8,6 +8,14 @@
 # the colab-cuda-oxide loader crate. setup.sh (Rust, evcxr, the %%rust magic)
 # runs first if it has not already.
 #
+# cuda-oxide is the SIMT half of NVIDIA's cuda-rust monorepo
+# (https://github.com/NVIDIA/cuda-rust, directory cuda-oxide/) since
+# 2026-09-30; the old NVlabs/cuda-oxide address redirects there. The pinned
+# commit predates the move, so its checkout still has crates/ at the root and
+# pins a nightly. Moving the pin past the merge changes the layout, the
+# toolchain (stable 1.99.1 with RUSTC_BOOTSTRAP) and the loader story; see
+# the handoff notes before bumping COLAB_CUDA_OXIDE_REF.
+#
 # The only file under /content is the colab_rust.py that setup.sh installs.
 # Everything else lives under
 #   ${XDG_CACHE_HOME:-$HOME/.cache}/colab-rust/cuda-oxide/<commit>/
@@ -20,7 +28,7 @@
 #
 # Environment:
 #   COLAB_RUST_REF            colab-rust ref for setup.sh and the helper crate (default: main)
-#   COLAB_CUDA_OXIDE_REF      full cuda-oxide commit SHA (default: the one validated on T4)
+#   COLAB_CUDA_OXIDE_REF      full cuda-oxide commit SHA in NVIDIA/cuda-rust (default: the one validated on T4)
 #   COLAB_CUDA_OXIDE_PREBUILT auto | never (default: auto)
 #
 # Supported: Google Colab, Ubuntu 24.04, Tesla T4 (sm_75), CUDA 13.4. Anything
@@ -52,7 +60,7 @@ for arg in "$@"; do
     case "$arg" in
         --from-source) PREBUILT=never ;;
         --verify-only) VERIFY_ONLY=1 ;;
-        --help|-h) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --help|-h) sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option: $arg (see --help)" ;;
     esac
 done
@@ -171,7 +179,7 @@ toolchain_job() {
     # Exact checkout: a cached tree at any other commit is replaced.
     if [ "$(git -C "$SRC" rev-parse HEAD 2>/dev/null || true)" != "$OXIDE_REV" ]; then
         rm -rf "$SRC"; git init -q "$SRC"
-        git -C "$SRC" remote add origin https://github.com/NVlabs/cuda-oxide.git
+        git -C "$SRC" remote add origin https://github.com/NVIDIA/cuda-rust.git
         git -C "$SRC" fetch -q --depth 1 origin "$OXIDE_REV"
         git -C "$SRC" checkout -q FETCH_HEAD
         [ "$(git -C "$SRC" rev-parse HEAD)" = "$OXIDE_REV" ] || { echo "checkout is not at $OXIDE_REV"; return 1; }

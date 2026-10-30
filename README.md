@@ -168,7 +168,7 @@ A worked candle GPU example is still on the roadmap.
 
 ## Rust CUDA kernels with cuda-oxide
 
-[cuda-oxide](https://github.com/NVlabs/cuda-oxide) compiles Rust functions to PTX through a rustc codegen backend. On a T4 runtime, one extra script puts that toolchain behind `%%rust`, so a `#[kernel]` written in a cell compiles and launches from the next line:
+[cuda-oxide](https://github.com/NVIDIA/cuda-rust/tree/main/cuda-oxide), the SIMT kernel model in NVIDIA's cuda-rust (its own NVlabs/cuda-oxide repository until 2026-09-30), compiles Rust functions to PTX through a rustc codegen backend. On a T4 runtime, one extra script puts that toolchain behind `%%rust`, so a `#[kernel]` written in a cell compiles and launches from the next line:
 
 ```python
 !curl -fsSL -o /tmp/setup-cuda-oxide.sh https://raw.githubusercontent.com/xavierforge/colab-rust/main/setup-cuda-oxide.sh
@@ -180,9 +180,9 @@ A worked candle GPU example is still on the roadmap.
 
 Measured on fresh T4 sessions (2026-09-16, three runs): the script takes about 90 s, the configuration cell that pulls in cuda-oxide's crates about 95 s, and a kernel then compiles and runs in a few seconds; roughly 3 minutes from a blank runtime to the first launch. The script installs a minimal CUDA 13.4 toolkit (740 MB), clang-21, the nightly cuda-oxide pins, an exact cuda-oxide checkout, and a prebuilt codegen backend from this repository's releases (source build as fallback, about 5 minutes more). It refuses anything but a Tesla T4 on the Ubuntu 24.04 image, because that is all that has been tested.
 
-What is pinned: cuda-oxide commit `6abfaa09` (2026-09-11), `nightly-2026-08-28`, `cuda-core` 0.3.1, CUDA 13.4. cuda-oxide is alpha software and moves fast; bumps are deliberate and re-tested. `COLAB_CUDA_OXIDE_REF` overrides the commit if you want to try a newer one.
+What is pinned: cuda-oxide commit `6abfaa09` (2026-09-11, from before the move into cuda-rust; the same commit is fetched from the new repository), `nightly-2026-08-28`, `cuda-core` 0.3.1, CUDA 13.4. cuda-oxide is alpha software and moves fast; bumps are deliberate and re-tested. `COLAB_CUDA_OXIDE_REF` overrides the commit if you want to try a newer one, but commits after the move have a different layout and toolchain that this script does not handle yet.
 
-Why a loader crate: cuda-oxide's generated `kernels::load()` reads the embedded PTX from the running executable, which under evcxr is the runtime process rather than the cell's shared object. The small `colab-cuda-oxide` crate reads it from the cell's own object instead, through `load_kernels!(&ctx, kernels)`. That is a workaround until upstream grows a path-aware loader.
+Why a loader crate: at the pinned commit, cuda-oxide's generated `kernels::load()` reads the embedded PTX from the running executable, which under evcxr is the runtime process rather than the cell's shared object. The small `colab-cuda-oxide` crate reads it from the cell's own object instead, through `load_kernels!(&ctx, kernels)`. Upstream merged a [path-aware loader](https://github.com/NVIDIA/cuda-rust/pull/1285) on 2026-09-23, so the crate goes away once the pin moves past it.
 
 ## Tested on
 
@@ -200,7 +200,8 @@ The prebuilt is compiled on Ubuntu 22.04 against glibc 2.35, so it runs on any n
 - [x] `cudarc` GPU quickstart (`examples/03_cudarc_gpu.ipynb`)
 - [x] v0.2.0 — `cuda-oxide` kernels inside `%%rust` cells on T4 (`setup-cuda-oxide.sh`, `examples/04_cuda_oxide.ipynb`)
 - [ ] `target/` Drive cache helper
-- [ ] Upstream path-aware loader in cuda-oxide, so the `colab-cuda-oxide` crate can go away
+- [x] Upstream path-aware loader in cuda-oxide (merged 2026-09-23)
+- [ ] Move the cuda-oxide pin into the cuda-rust era (stable 1.99.1, nested layout) and retire the `colab-cuda-oxide` crate
 - [ ] cuda-oxide on other Colab GPUs (L4, A100) once measured
 
 See [open issues](https://github.com/xavierforge/colab-rust/issues) for
@@ -225,8 +226,8 @@ PRs welcome. Most useful right now:
   maintainers — for building the foundational REPL that everything here
   depends on, and for suggesting the auto-build approach in
   [evcxr#147](https://github.com/evcxr/evcxr/issues/147).
-- [NVlabs/cuda-oxide](https://github.com/NVlabs/cuda-oxide) — the Rust-to-PTX
-  codegen backend behind `examples/04_cuda_oxide.ipynb`.
+- [NVIDIA/cuda-rust](https://github.com/NVIDIA/cuda-rust) — home of cuda-oxide,
+  the Rust-to-PTX codegen backend behind `examples/04_cuda_oxide.ipynb`.
 - Background: the author's numba CUDA teaching series
   ([part 1](https://xavierforge.dev/posts/numba-cuda-puzzles-1/),
   [part 2](https://xavierforge.dev/posts/numba-cuda-puzzles-2/)), the

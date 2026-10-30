@@ -16,6 +16,10 @@
 //! verified route on Colab T4 uses. Cubin, NVVM IR, LTOIR and merged
 //! generic bundles go through cuda-host's own loaders once those learn to
 //! read from a path.
+//!
+//! Upstream (now NVIDIA/cuda-rust) merged an anchor-based loader on
+//! 2026-09-23, so `kernels::load()` finds the cell's own object from that
+//! commit on. This crate stays only while the pinned commit predates it.
 
 use std::ffi::{CStr, OsStr};
 use std::os::unix::ffi::OsStrExt;
