@@ -1,14 +1,19 @@
 name: Build cuda-oxide prebuilt
 
 # Builds cargo-oxide and librustc_codegen_cuda.so for one exact cuda-oxide
-# commit, on the same ubuntu-22.04 / glibc 2.35 baseline as the evcxr
-# prebuilt, and publishes them under an immutable per-commit release tag.
-# cuda-oxide is fetched from NVIDIA/cuda-rust, where it has lived since
-# 2026-09-30. Commits from after the move keep the crates under cuda-oxide/
-# instead of the checkout root; this workflow still expects the pre-move
-# layout and needs that adjustment when the pin moves.
-# setup-cuda-oxide.sh downloads the asset whose name matches the commit and
-# nightly it is about to use, and falls back to a source build otherwise.
+# commit of NVIDIA/cuda-rust, on the same ubuntu-22.04 / glibc 2.35 baseline
+# as the evcxr prebuilt, and publishes them under an immutable per-commit
+# release tag. setup-cuda-oxide.sh downloads the asset whose name matches the
+# commit and toolchain it is about to use, and falls back to a source build
+# otherwise.
+#
+# cuda-oxide has lived under cuda-oxide/ in the cuda-rust monorepo since
+# 2026-09-30; commits from before the move keep it at the checkout root, and
+# both layouts are handled. The rust-toolchain.toml that matters is the one
+# next to the crates: stable 1.99.1 with rustc-dev and llvm-tools, its -Z
+# flags unlocked by the RUSTC_BOOTSTRAP that cuda-oxide/.cargo/config.toml
+# sets for every build under that directory. The monorepo's root pin is for
+# the shared host crates and lacks rustc-dev.
 #
 # No CUDA toolkit is needed here: cargo-oxide is deliberately CUDA-free and
 # the backend loads libNVVM / nvJitLink at run time.
@@ -19,7 +24,7 @@ on:
       cuda_oxide_rev:
         description: "Full cuda-oxide commit SHA (in NVIDIA/cuda-rust) to build"
         required: true
-        default: "6abfaa091e29a6275c1943895bfbc97efa306e98"
+        default: "cced2a35bcc557b30f27209ff3887b4eb728cb63"
 
 jobs:
   build:
@@ -27,23 +32,32 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Fetch cuda-oxide at the requested commit
+      - name: Fetch cuda-rust at the requested commit
         env:
           REV: ${{ inputs.cuda_oxide_rev }}
         run: |
           set -euo pipefail
           [[ "$REV" =~ ^[0-9a-f]{40}$ ]] || { echo "cuda_oxide_rev must be a full 40-char SHA"; exit 1; }
-          git init -q cuda-oxide
-          cd cuda-oxide
+          git init -q cuda-rust
+          cd cuda-rust
           git remote add origin https://github.com/NVIDIA/cuda-rust.git
           git fetch -q --depth 1 origin "$REV"
           git checkout -q FETCH_HEAD
           echo "cuda-oxide $(git rev-parse --short=12 HEAD) $(git log -1 --format=%cd --date=short)"
+          if [ -d cuda-oxide/crates/rustc-codegen-cuda ]; then
+            OXIDE_DIR="$PWD/cuda-oxide"
+          elif [ -d crates/rustc-codegen-cuda ]; then
+            OXIDE_DIR="$PWD"
+          else
+            echo "no crates/rustc-codegen-cuda at the checkout root or under cuda-oxide/"; exit 1
+          fi
+          echo "cuda-oxide workspace: $OXIDE_DIR"
+          echo "OXIDE_DIR=$OXIDE_DIR" >> "$GITHUB_ENV"
 
-      - name: Install the nightly pinned by cuda-oxide
+      - name: Install the toolchain pinned by cuda-oxide
         run: |
           set -euo pipefail
-          cd cuda-oxide
+          cd "$OXIDE_DIR"
           CHANNEL=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
           ARGS=()
           for c in $(sed -n '/^components *= *\[/,/\]/p' rust-toolchain.toml | grep -o '"[^"]*"' | tr -d '"'); do ARGS+=(--component "$c"); done
@@ -55,14 +69,14 @@ jobs:
       - name: Build cargo-oxide (release)
         run: |
           set -euo pipefail
-          cd cuda-oxide
+          cd "$OXIDE_DIR"
           cargo build --release -p cargo-oxide
           ls -la target/release/cargo-oxide
 
       - name: Build the codegen backend (same invocation as cargo oxide setup)
         run: |
           set -euo pipefail
-          cd cuda-oxide/crates/rustc-codegen-cuda
+          cd "$OXIDE_DIR/crates/rustc-codegen-cuda"
           cargo build --lib --target host-tuple --target-dir target
           SO=$(ls target/*/debug/librustc_codegen_cuda.so)
           ls -la "$SO"
@@ -73,14 +87,14 @@ jobs:
           REV: ${{ inputs.cuda_oxide_rev }}
         run: |
           set -euo pipefail
-          # The clone carries the toolchain pin; this step runs outside it, so ask the nightly explicitly.
+          # The clone carries the toolchain pin; this step runs outside it, so ask the pinned toolchain explicitly.
           HOST=$(rustup run "$CHANNEL" rustc -vV | sed -n 's/^host: //p')
           GLIBC=$(ldd --version | awk 'NR==1{print $NF}')
           SHORT=${REV:0:12}
           NAME="cuda-oxide-${SHORT}-${CHANNEL}-${HOST}-glibc${GLIBC}"
           STAGE="$RUNNER_TEMP/$NAME"
           mkdir -p "$STAGE/bin" "$STAGE/lib"
-          cp cuda-oxide/target/release/cargo-oxide "$STAGE/bin/"
+          cp "$OXIDE_DIR/target/release/cargo-oxide" "$STAGE/bin/"
           cp "$BACKEND_SO" "$STAGE/lib/librustc_codegen_cuda.so"
           UNSTRIPPED=$(stat -c %s "$STAGE/lib/librustc_codegen_cuda.so")
           strip --strip-debug "$STAGE/lib/librustc_codegen_cuda.so"
@@ -122,7 +136,7 @@ jobs:
           tag_name: ${{ env.ASSET_NAME }}
           name: ${{ env.ASSET_NAME }}
           body: |
-            Prebuilt `cargo-oxide` and `librustc_codegen_cuda.so` for cuda-oxide `${{ inputs.cuda_oxide_rev }}` on `${{ env.CHANNEL }}`, built on ubuntu-22.04. Consumed by `setup-cuda-oxide.sh`; not meant for direct download.
+            Prebuilt `cargo-oxide` and `librustc_codegen_cuda.so` for cuda-oxide `${{ inputs.cuda_oxide_rev }}` (NVIDIA/cuda-rust) on `${{ env.CHANNEL }}`, built on ubuntu-22.04. Consumed by `setup-cuda-oxide.sh`; not meant for direct download.
           files: |
             ${{ env.ASSET_NAME }}.tar.gz
             ${{ env.ASSET_NAME }}.manifest.json
