@@ -26,14 +26,15 @@
 #
 # Environment:
 #   COLAB_RUST_REF            colab-rust ref for setup.sh (default: main)
-#   COLAB_CUDA_OXIDE_REF      full cuda-oxide commit SHA in NVIDIA/cuda-rust (default: the one validated on T4)
+#   COLAB_CUDA_OXIDE_REF      full cuda-oxide commit SHA in NVIDIA/cuda-rust (default: the one validated on Colab)
 #   COLAB_CUDA_OXIDE_PREBUILT auto | never (default: auto)
 #   COLAB_CUDA_OXIDE_TARGET   PTX target for the kernels (default: derived from the GPU's compute capability)
 #
 # Supported: Google Colab, Ubuntu 24.04, CUDA 13.4, any GPU with compute
-# capability 7.0 or newer on a 580+ driver. Tesla T4 (sm_75) is the validated
-# card; other Colab GPUs are accepted with a warning until they have been
-# measured. Anything else fails early with a clear message instead of guessing.
+# capability 7.0 or newer on a 580+ driver. Measured end to end on the Tesla
+# T4 (sm_75) and the RTX PRO 6000 Blackwell (sm_120a); other Colab GPUs are
+# accepted with a warning until they have been. Anything else fails early with
+# a clear message instead of guessing.
 
 set -euo pipefail
 # Under set -e a failing command exits silently; say where, so a bare `!` cell
@@ -62,7 +63,7 @@ for arg in "$@"; do
     case "$arg" in
         --from-source) PREBUILT=never ;;
         --verify-only) VERIFY_ONLY=1 ;;
-        --help|-h) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --help|-h) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option: $arg (see --help)" ;;
     esac
 done
@@ -100,7 +101,7 @@ CC_MAJOR=${BASH_REMATCH[1]}; CC_MINOR=${BASH_REMATCH[2]}
 if [ "$CC_MAJOR" -ge 9 ]; then TARGET="sm_${CC_MAJOR}${CC_MINOR}a"; else TARGET="sm_${CC_MAJOR}${CC_MINOR}"; fi
 TARGET="${COLAB_CUDA_OXIDE_TARGET:-$TARGET}"
 case "$GPU_NAME" in
-    *T4*) ok "$GPU_NAME (compute capability $COMPUTE_CAP), driver $DRIVER, target $TARGET" ;;
+    *T4*|*"RTX PRO 6000"*) ok "$GPU_NAME (compute capability $COMPUTE_CAP), driver $DRIVER, target $TARGET" ;;
     *) warn "$GPU_NAME (compute capability $COMPUTE_CAP), driver $DRIVER, target $TARGET: not yet measured on this GPU, proceeding" ;;
 esac
 # shellcheck disable=SC1091
