@@ -178,7 +178,7 @@ A worked candle GPU example is still on the roadmap.
 
 [examples/04_cuda_oxide.ipynb](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/04_cuda_oxide.ipynb) has the full walk-through: the `%%rust` configuration cell, a vecadd kernel, and GPU buffers reused across cells.
 
-Measured on fresh T4 sessions at the previous pin (2026-09-16, three runs): the script took about 90 s, the configuration cell that pulls in cuda-oxide's crates about 95 s, and a kernel then compiled and ran in a few seconds; roughly 3 minutes from a blank runtime to the first launch. The current pin pulls in more crates and is being re-measured. The script installs a minimal CUDA 13.4 toolkit (740 MB), clang-21, the stable Rust that cuda-oxide pins (1.99.1 with rustc-dev and llvm-tools), an exact cuda-rust checkout, and a prebuilt codegen backend from this repository's releases (source build as fallback, about 5 minutes more). It refuses anything but a Tesla T4 on the Ubuntu 24.04 image, because that is all that has been tested.
+Measured on fresh T4 sessions at the previous pin (2026-09-16, three runs): the script took about 90 s, the configuration cell that pulls in cuda-oxide's crates about 95 s, and a kernel then compiled and ran in a few seconds; roughly 3 minutes from a blank runtime to the first launch. The current pin pulls in more crates and is being re-measured. The script installs a minimal CUDA 13.4 toolkit (740 MB), clang-21, the stable Rust that cuda-oxide pins (1.99.1 with rustc-dev and llvm-tools), an exact cuda-rust checkout, and a prebuilt codegen backend from this repository's releases (source build as fallback, about 5 minutes more). It derives the PTX target from the GPU's compute capability; the Tesla T4 is the measured card, other Colab GPUs (L4, A100, Blackwell) are accepted with a warning until they are, and the configuration cell takes the target the script prints. Ubuntu 24.04 is the only image it accepts.
 
 What is pinned: cuda-oxide commit `cced2a35` (2026-11-02) of NVIDIA/cuda-rust, Rust 1.99.1, CUDA 13.4; `cuda-core` comes from the same checkout. cuda-oxide is alpha software and moves fast; bumps are deliberate and re-tested. `COLAB_CUDA_OXIDE_REF` overrides the commit if you want to try a newer one. Commits from before cuda-oxide moved into cuda-rust (2026-09-30) are refused; v0.2.0 of this repository covers those.
 
@@ -200,7 +200,7 @@ The prebuilt is compiled on Ubuntu 22.04 against glibc 2.35, so it runs on any n
 - [ ] `target/` Drive cache helper
 - [x] Upstream path-aware loader in cuda-oxide (merged 2026-09-23)
 - [ ] v0.3.0 — cuda-oxide pin in the cuda-rust era (stable 1.99.1, nested layout), loader crate retired
-- [ ] cuda-oxide on other Colab GPUs (L4, A100) once measured
+- [ ] cuda-oxide measured on the other Colab GPUs (L4, A100, Blackwell); the script already accepts them
 
 See [open issues](https://github.com/xavierforge/colab-rust/issues) for
 detail.

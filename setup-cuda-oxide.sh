@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# colab-rust: cuda-oxide on Google Colab T4
+# colab-rust: cuda-oxide on Google Colab GPUs
 # https://github.com/xavierforge/colab-rust
 #
 # Installs everything needed to compile cuda-oxide GPU kernels inside %%rust
@@ -28,9 +28,12 @@
 #   COLAB_RUST_REF            colab-rust ref for setup.sh (default: main)
 #   COLAB_CUDA_OXIDE_REF      full cuda-oxide commit SHA in NVIDIA/cuda-rust (default: the one validated on T4)
 #   COLAB_CUDA_OXIDE_PREBUILT auto | never (default: auto)
+#   COLAB_CUDA_OXIDE_TARGET   PTX target for the kernels (default: derived from the GPU's compute capability)
 #
-# Supported: Google Colab, Ubuntu 24.04, Tesla T4 (sm_75), CUDA 13.4. Anything
-# else fails early with a clear message instead of guessing.
+# Supported: Google Colab, Ubuntu 24.04, CUDA 13.4, any GPU with compute
+# capability 7.0 or newer on a 580+ driver. Tesla T4 (sm_75) is the validated
+# card; other Colab GPUs are accepted with a warning until they have been
+# measured. Anything else fails early with a clear message instead of guessing.
 
 set -euo pipefail
 # Under set -e a failing command exits silently; say where, so a bare `!` cell
@@ -39,6 +42,7 @@ trap 'echo "❌ setup-cuda-oxide.sh aborted at line $LINENO: $BASH_COMMAND (exit
 
 log() { echo "▶ $*"; }
 ok() { echo "✅ $*"; }
+warn() { echo "⚠️ $*"; }
 die() { echo "❌ $*" >&2; exit 1; }
 
 REPO="xavierforge/colab-rust"
@@ -58,7 +62,7 @@ for arg in "$@"; do
     case "$arg" in
         --from-source) PREBUILT=never ;;
         --verify-only) VERIFY_ONLY=1 ;;
-        --help|-h) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --help|-h) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option: $arg (see --help)" ;;
     esac
 done
@@ -77,16 +81,27 @@ T_START=$SECONDS
 elapsed() { echo "$(( SECONDS - T_START ))s"; }
 
 # ---------- 0. Preflight: refuse anything we have not validated ----------
-log "cuda-oxide for Google Colab T4 (cuda-oxide ${OXIDE_REV:0:12}, colab-rust ref ${REF})"
+log "cuda-oxide for Google Colab (cuda-oxide ${OXIDE_REV:0:12}, colab-rust ref ${REF})"
 [ "$(id -u)" = 0 ] || die "must run as root (Colab runtimes do); the /opt link needs it"
-command -v nvidia-smi >/dev/null || die "nvidia-smi not found. Select a GPU runtime: Runtime > Change runtime type > T4 GPU"
+command -v nvidia-smi >/dev/null || die "nvidia-smi not found. Select a GPU runtime: Runtime > Change runtime type > a GPU"
 # awk reads the whole output: `head -1` can close the pipe early and, with
 # pipefail, turn a producer's SIGPIPE into a silent exit.
 GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | awk 'NR==1')
 DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | awk 'NR==1')
+COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | awk 'NR==1')
+[[ "$COMPUTE_CAP" =~ ^([0-9]+)\.([0-9]+)$ ]] || die "could not read the compute capability of '$GPU_NAME' from nvidia-smi (got '$COMPUTE_CAP')"
+CC_MAJOR=${BASH_REMATCH[1]}; CC_MINOR=${BASH_REMATCH[2]}
+[ "$CC_MAJOR" -ge 7 ] || die "GPU '$GPU_NAME' has compute capability $COMPUTE_CAP; cuda-oxide needs 7.0 (Volta) or newer"
+# CUDA 13 toolkits need an R580+ driver; an older one fails at the first driver call.
+[ "${DRIVER%%.*}" -ge 580 ] || die "driver $DRIVER is too old for the CUDA 13.4 toolkit (needs 580 or newer)"
+# Same rule as cargo-oxide's GPU detection: compute capability 9.0 and up is
+# always the arch-specific target (sm_90a, sm_120a), a strict superset of the
+# plain one on that chip; below it there is no such variant.
+if [ "$CC_MAJOR" -ge 9 ]; then TARGET="sm_${CC_MAJOR}${CC_MINOR}a"; else TARGET="sm_${CC_MAJOR}${CC_MINOR}"; fi
+TARGET="${COLAB_CUDA_OXIDE_TARGET:-$TARGET}"
 case "$GPU_NAME" in
-    *T4*) ok "$GPU_NAME, driver $DRIVER, target sm_75" ;;
-    *) die "GPU is '$GPU_NAME'. Only Tesla T4 (sm_75) is validated; other GPUs need their own CUDA_OXIDE_TARGET and testing" ;;
+    *T4*) ok "$GPU_NAME (compute capability $COMPUTE_CAP), driver $DRIVER, target $TARGET" ;;
+    *) warn "$GPU_NAME (compute capability $COMPUTE_CAP), driver $DRIVER, target $TARGET: not yet measured on this GPU, proceeding" ;;
 esac
 # shellcheck disable=SC1091
 OS_ID=$(. /etc/os-release && echo "$VERSION_ID"); OS_CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
@@ -250,7 +265,7 @@ CHANNEL=$(cat "$INSTALL/toolchain.txt" 2>/dev/null || true)
 [ -n "$CHANNEL" ] || die "no toolchain recorded at $INSTALL/toolchain.txt; run without --verify-only first"
 [ -d "$CUDA_DIR" ] || die "$CUDA_DIR is missing although the ${CUDA_SERIES} packages were requested"
 TOOLCHAIN_LLC="$(rustup run "$CHANNEL" rustc --print sysroot)/lib/rustlib/${HOST_TRIPLE}/bin/llc"
-export CUDA_HOME="$CUDA_LINK" CUDA_TOOLKIT_PATH="$CUDA_LINK" CUDA_OXIDE_TARGET=sm_75
+export CUDA_HOME="$CUDA_LINK" CUDA_TOOLKIT_PATH="$CUDA_LINK" CUDA_OXIDE_TARGET="$TARGET"
 
 # ---------- 3. Backend from source when no verified prebuilt is in place ----------
 if [ "$VERIFY_ONLY" = 0 ] && ! backend_ready; then
@@ -274,6 +289,7 @@ if [ "$VERIFY_ONLY" = 0 ]; then
     # evcxr calls the pinned toolchain's rustc by absolute path, so that lookup
     # hits the default stable proxy on PATH and misses. Pin llc through a link.
     ln -sfn "$TOOLCHAIN_LLC" "$INSTALL/bin/llc"
+    echo "$TARGET" > "$INSTALL/target"
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${CLANG_MAJOR} 100 >/dev/null
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${CLANG_MAJOR} 100 >/dev/null
     mkdir -p "$(dirname "$LINK")" && ln -sfn "$INSTALL" "$LINK"
@@ -304,10 +320,12 @@ ok "cuda-oxide ready in $(elapsed) at $LINK"
 
 cat <<EOT
 
-Next: run the notebook's "Configure %%rust" cell. It needs these values:
+Next: run the notebook's "Configure %%rust" cell. It needs these values
+(the target line is for this session's GPU; the notebook ships with the T4's):
 
     :toolchain ${CHANNEL}
     :build_env RUSTC_BOOTSTRAP=1
+    :build_env CUDA_OXIDE_TARGET=${TARGET}
     :build_env RUSTFLAGS=-Cprefer-dynamic -Zcodegen-backend=${LINK}/lib/librustc_codegen_cuda.so -Zmir-enable-passes=-JumpThreading -Zalways-encode-mir -Csymbol-mangling-version=v0 -Cdebug-assertions=off -Coverflow-checks=off
     :build_env CUDA_OXIDE_LLC=${LINK}/bin/llc
     :dep cuda-core = { path = "${LINK}/src/cuda-core" }
