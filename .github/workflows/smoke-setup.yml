@@ -1,0 +1,91 @@
+name: Smoke test setup.sh
+
+# Runs setup.sh the way a Colab cell does and checks the three things that
+# break between weekly rebuilds: the prebuilt path is taken (no source
+# compile), the Rust kernel registers with Jupyter, and a cell evaluates
+# through evcxr_jupyter. Daily against the published prebuilt-latest, and as
+# the gate inside build-prebuilts.yml against the tarball just built, before
+# it is published.
+#
+# ubuntu-24.04 (glibc 2.39) matches the Colab image since 2026-09-10 and must
+# stay green; ubuntu-22.04 (glibc 2.35) is the image the prebuilt is built on,
+# kept as the compatibility floor.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      prebuilt_artifact:
+        description: "Name of a workflow artifact holding the tarball and manifest to test instead of the published release"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the prebuilt under test
+        if: inputs.prebuilt_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.prebuilt_artifact }}
+          path: ${{ runner.temp }}/prebuilt
+
+      - name: Point setup.sh at that tarball
+        if: inputs.prebuilt_artifact != ''
+        run: |
+          ls -la "$RUNNER_TEMP/prebuilt"
+          echo "COLAB_RUST_PREBUILT_BASE_URL=file://$RUNNER_TEMP/prebuilt" >> "$GITHUB_ENV"
+
+      - name: Prepare a Colab-like host
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /content && sudo chown "$USER" /content
+          python3 -m pip install --quiet --user jupyter_core jupyter_client nbformat nbclient
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          rustc --version
+
+      - name: Run setup.sh
+        env:
+          COLAB_RUST_REF: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          bash setup.sh 2>&1 | tee "$RUNNER_TEMP/setup.log"
+
+      - name: Assert the prebuilt path was taken and verified
+        run: |
+          set -euo pipefail
+          grep -q 'Installed prebuilt evcxr_jupyter' "$RUNNER_TEMP/setup.log" || { echo "::error::prebuilt was not installed"; exit 1; }
+          grep -q 'verified against its manifest' "$RUNNER_TEMP/setup.log" || { echo "::error::prebuilt was not verified against a manifest"; exit 1; }
+          ! grep -qi 'falling back\|Compiling evcxr_jupyter from source' "$RUNNER_TEMP/setup.log" || { echo "::error::setup.sh fell back to a source compile"; exit 1; }
+
+      - name: Assert the Rust kernel is registered
+        run: |
+          set -euo pipefail
+          jupyter kernelspec list
+          jupyter kernelspec list | grep -q '^\s*rust\s' || { echo "::error::no rust kernelspec"; exit 1; }
+
+      - name: Evaluate a cell through evcxr_jupyter
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          python3 - <<'PY'
+          import nbformat
+          from nbclient import NotebookClient
+          nb = nbformat.v4.new_notebook()
+          nb.metadata["kernelspec"] = {"name": "rust", "display_name": "Rust", "language": "rust"}
+          nb.cells = [nbformat.v4.new_code_cell('let x = 20 + 22;\nprintln!("colab-rust smoke: {x}");')]
+          NotebookClient(nb, timeout=600, kernel_name="rust").execute()
+          out = "".join(o.get("text", "") for o in nb.cells[0].outputs if o.get("output_type") == "stream")
+          print(out)
+          assert "colab-rust smoke: 42" in out, nb.cells[0].outputs
+          PY
