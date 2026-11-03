@@ -3,18 +3,16 @@
 # https://github.com/xavierforge/colab-rust
 #
 # Installs everything needed to compile cuda-oxide GPU kernels inside %%rust
-# cells: a minimal CUDA 13.4 toolkit, clang-21, the nightly cuda-oxide pins, an
-# exact cuda-oxide checkout, a prebuilt (or source-built) codegen backend, and
-# the colab-cuda-oxide loader crate. setup.sh (Rust, evcxr, the %%rust magic)
-# runs first if it has not already.
+# cells: a minimal CUDA 13.4 toolkit, clang-21, the stable Rust that cuda-oxide
+# pins (1.99.1 with rustc-dev and llvm-tools), an exact cuda-rust checkout and
+# a prebuilt (or source-built) codegen backend. setup.sh (Rust, evcxr, the
+# %%rust magic) runs first if it has not already.
 #
 # cuda-oxide is the SIMT half of NVIDIA's cuda-rust monorepo
 # (https://github.com/NVIDIA/cuda-rust, directory cuda-oxide/) since
-# 2026-09-30; the old NVlabs/cuda-oxide address redirects there. The pinned
-# commit predates the move, so its checkout still has crates/ at the root and
-# pins a nightly. Moving the pin past the merge changes the layout, the
-# toolchain (stable 1.99.1 with RUSTC_BOOTSTRAP) and the loader story; see
-# the handoff notes before bumping COLAB_CUDA_OXIDE_REF.
+# 2026-09-30. Commits from before the move have a different layout, pin a
+# nightly and need a loader crate that this repository no longer ships, so
+# they are refused; colab-rust v0.2.0 covers them.
 #
 # The only file under /content is the colab_rust.py that setup.sh installs.
 # Everything else lives under
@@ -27,7 +25,7 @@
 #   bash setup-cuda-oxide.sh --verify-only   run the checks and doctor; writes nothing
 #
 # Environment:
-#   COLAB_RUST_REF            colab-rust ref for setup.sh and the helper crate (default: main)
+#   COLAB_RUST_REF            colab-rust ref for setup.sh (default: main)
 #   COLAB_CUDA_OXIDE_REF      full cuda-oxide commit SHA in NVIDIA/cuda-rust (default: the one validated on T4)
 #   COLAB_CUDA_OXIDE_PREBUILT auto | never (default: auto)
 #
@@ -46,7 +44,7 @@ die() { echo "❌ $*" >&2; exit 1; }
 REPO="xavierforge/colab-rust"
 REF="${COLAB_RUST_REF:-main}"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF}"
-OXIDE_REV="${COLAB_CUDA_OXIDE_REF:-6abfaa091e29a6275c1943895bfbc97efa306e98}"
+OXIDE_REV="${COLAB_CUDA_OXIDE_REF:-cced2a35bcc557b30f27209ff3887b4eb728cb63}"
 PREBUILT="${COLAB_CUDA_OXIDE_PREBUILT:-auto}"
 CUDA_SERIES="13-4"                          # apt package suffix, validated on T4
 CUDA_DIR="/usr/local/cuda-${CUDA_SERIES/-/.}"  # where those packages install
@@ -60,7 +58,7 @@ for arg in "$@"; do
     case "$arg" in
         --from-source) PREBUILT=never ;;
         --verify-only) VERIFY_ONLY=1 ;;
-        --help|-h) sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --help|-h) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option: $arg (see --help)" ;;
     esac
 done
@@ -70,7 +68,8 @@ case "$PREBUILT" in auto|never) ;; *) die "COLAB_CUDA_OXIDE_PREBUILT must be aut
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/colab-rust/cuda-oxide"
 INSTALL="${CACHE_ROOT}/${OXIDE_REV}"
 LINK="/opt/colab-rust/cuda-oxide"
-SRC="${INSTALL}/src"
+SRC="${INSTALL}/src"                        # the cuda-rust checkout
+OXIDE_SRC="${SRC}/cuda-oxide"               # the cuda-oxide workspace inside it
 BACKEND="${INSTALL}/lib/librustc_codegen_cuda.so"
 CUDA_PKGS=(cuda-nvcc-${CUDA_SERIES} libnvjitlink-${CUDA_SERIES} libnvjitlink-dev-${CUDA_SERIES} libcurand-dev-${CUDA_SERIES})
 CLANG_PKGS=(clang-${CLANG_MAJOR} libclang-common-${CLANG_MAJOR}-dev)
@@ -112,7 +111,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # Verify a prebuilt tree (bin/, lib/, manifest.json under $1) against the
 # manifest and this machine. The manifest travels inside the same archive, so
 # this proves the archive is internally consistent and built for this exact
-# commit, nightly, host and glibc; it does not prove who built it. The trust
+# commit, toolchain, host and glibc; it does not prove who built it. The trust
 # boundary is write access to the GitHub Release, same as the evcxr prebuilt.
 verify_prebuilt() {
     python3 - "$1" "$OXIDE_REV" "$2" "$HOST_TRIPLE" "$(rustup run "$2" rustc -vV)" "$GLIBC" <<'PY'
@@ -128,7 +127,7 @@ if m.get("schema_version") != 1: p.append(f"schema_version {m.get('schema_versio
 if m.get("cuda_oxide_rev") != rev: p.append(f"commit {m.get('cuda_oxide_rev')} != {rev}")
 if m.get("rust_toolchain") != channel: p.append(f"toolchain {m.get('rust_toolchain')} != {channel}")
 if m.get("host_triple") != host: p.append(f"host {m.get('host_triple')} != {host}")
-if m.get("rustc_vV", "").strip() != rustc_vv.strip(): p.append("rustc -vV differs from the installed nightly")
+if m.get("rustc_vV", "").strip() != rustc_vv.strip(): p.append("rustc -vV differs from the installed toolchain")
 vt = lambda s: tuple(int(x) for x in s.split("."))
 try:
     if vt(glibc) < vt(m.get("minimum_glibc", "0")): p.append(f"glibc {glibc} older than required {m.get('minimum_glibc')}")
@@ -156,7 +155,7 @@ promote_staging() {
     rm -rf "$1"
 }
 
-# ---------- 2. Two jobs in parallel: apt (CUDA + clang) and toolchain (checkout + nightly + prebuilt) ----------
+# ---------- 2. Two jobs in parallel: apt (CUDA + clang) and toolchain (checkout + toolchain + prebuilt) ----------
 apt_job() {
     local missing=()
     for p in "${CUDA_PKGS[@]}" "${CLANG_PKGS[@]}"; do dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p"); done
@@ -185,13 +184,18 @@ toolchain_job() {
         [ "$(git -C "$SRC" rev-parse HEAD)" = "$OXIDE_REV" ] || { echo "checkout is not at $OXIDE_REV"; return 1; }
     fi
     echo "cuda-oxide $(git -C "$SRC" rev-parse --short=12 HEAD) $(git -C "$SRC" log -1 --format=%cd --date=short)"
+    [ -d "$OXIDE_SRC/crates/rustc-codegen-cuda" ] && [ -f "$OXIDE_SRC/rust-toolchain.toml" ] \
+        || { echo "commit ${OXIDE_REV:0:12} has no cuda-oxide/ workspace: it predates the move into cuda-rust (2026-09-30); use colab-rust v0.2.0 for it"; return 1; }
+    # The pin that matters is the one next to the crates (stable with
+    # rustc-dev and llvm-tools); the monorepo root pins a plain stable for the
+    # shared host crates.
     local channel args=()
-    channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$SRC/rust-toolchain.toml")
-    for c in $(sed -n '/^components *= *\[/,/\]/p' "$SRC/rust-toolchain.toml" | grep -o '"[^"]*"' | tr -d '"'); do args+=(--component "$c"); done
+    channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$OXIDE_SRC/rust-toolchain.toml")
+    for c in $(sed -n '/^components *= *\[/,/\]/p' "$OXIDE_SRC/rust-toolchain.toml" | grep -o '"[^"]*"' | tr -d '"'); do args+=(--component "$c"); done
     rustup toolchain install "$channel" --profile minimal "${args[@]}" >/dev/null 2>&1 \
         || rustup toolchain install "$channel" --profile minimal "${args[@]}"
     echo "$channel" > "$INSTALL/toolchain.txt"
-    echo "nightly: $channel"
+    echo "toolchain: $channel"
 
     if [ "$PREBUILT" = never ]; then
         rm -rf "$INSTALL/bin" "$INSTALL/lib" "$INSTALL/manifest.json"
@@ -220,8 +224,8 @@ toolchain_job() {
 }
 
 if [ "$VERIFY_ONLY" = 0 ]; then
-    mkdir -p "$INSTALL/helper/src" "$INSTALL/logs"
-    log "Installing CUDA ${CUDA_SERIES/-/.} (minimal), clang-${CLANG_MAJOR}, the pinned nightly, cuda-oxide, and the backend..."
+    mkdir -p "$INSTALL/logs"
+    log "Installing CUDA ${CUDA_SERIES/-/.} (minimal), clang-${CLANG_MAJOR}, the pinned Rust, cuda-oxide, and the backend..."
     apt_job >"$INSTALL/logs/apt.log" 2>&1 & APT_PID=$!
     toolchain_job >"$INSTALL/logs/toolchain.log" 2>&1 & TC_PID=$!
     # Take the children down with us, so an interrupted run cannot leave apt
@@ -239,37 +243,37 @@ if [ "$VERIFY_ONLY" = 0 ]; then
     [ "$APT_ST" = done ] || { tail -20 "$INSTALL/logs/apt.log"; die "package installation failed (full log: $INSTALL/logs/apt.log)"; }
     [ "$TC_ST" = done ] || { tail -20 "$INSTALL/logs/toolchain.log"; die "toolchain step failed (full log: $INSTALL/logs/toolchain.log)"; }
     ok "packages: $(tail -1 "$INSTALL/logs/apt.log")"
-    grep -E '^(cuda-oxide|nightly|prebuilt)' "$INSTALL/logs/toolchain.log" | sed 's/^/   /'
+    grep -E '^(cuda-oxide|toolchain|prebuilt)' "$INSTALL/logs/toolchain.log" | sed 's/^/   /'
 fi
 
 CHANNEL=$(cat "$INSTALL/toolchain.txt" 2>/dev/null || true)
 [ -n "$CHANNEL" ] || die "no toolchain recorded at $INSTALL/toolchain.txt; run without --verify-only first"
 [ -d "$CUDA_DIR" ] || die "$CUDA_DIR is missing although the ${CUDA_SERIES} packages were requested"
-NIGHTLY_LLC="$(rustup run "$CHANNEL" rustc --print sysroot)/lib/rustlib/${HOST_TRIPLE}/bin/llc"
+TOOLCHAIN_LLC="$(rustup run "$CHANNEL" rustc --print sysroot)/lib/rustlib/${HOST_TRIPLE}/bin/llc"
 export CUDA_HOME="$CUDA_LINK" CUDA_TOOLKIT_PATH="$CUDA_LINK" CUDA_OXIDE_TARGET=sm_75
 
 # ---------- 3. Backend from source when no verified prebuilt is in place ----------
 if [ "$VERIFY_ONLY" = 0 ] && ! backend_ready; then
     log "Building cargo-oxide and the codegen backend from source (about 5 minutes)..."
     ln -sfn "$CUDA_DIR" "$CUDA_LINK"
-    (cd "$SRC" && cargo oxide setup 2>&1 | grep -E 'Finished|Backend built' | sed 's/^/   /')
+    # Inside the cuda-oxide workspace: its rust-toolchain.toml selects the
+    # pinned stable and its .cargo/config.toml sets RUSTC_BOOTSTRAP for the -Z flags.
+    (cd "$OXIDE_SRC" && cargo oxide setup 2>&1 | grep -E 'Finished|Backend built' | sed 's/^/   /')
     STAGING="$INSTALL/.staging-source"; rm -rf "$STAGING"; mkdir -p "$STAGING/bin" "$STAGING/lib"
-    cp "$SRC/target/debug/cargo-oxide" "$STAGING/bin/cargo-oxide"
-    cp "$SRC"/crates/rustc-codegen-cuda/target/*/debug/librustc_codegen_cuda.so "$STAGING/lib/librustc_codegen_cuda.so"
+    cp "$OXIDE_SRC/target/debug/cargo-oxide" "$STAGING/bin/cargo-oxide"
+    cp "$OXIDE_SRC"/crates/rustc-codegen-cuda/target/*/debug/librustc_codegen_cuda.so "$STAGING/lib/librustc_codegen_cuda.so"
     printf '{"schema_version": 1, "source": "built on this runtime by cargo oxide setup", "cuda_oxide_rev": "%s", "rust_toolchain": "%s"}\n' \
         "$OXIDE_REV" "$CHANNEL" > "$STAGING/manifest.json"
     promote_staging "$STAGING"
 fi
 
-# ---------- 4. Links, helper crate, clang alternatives (install mode only) ----------
+# ---------- 4. Links and clang alternatives (install mode only) ----------
 if [ "$VERIFY_ONLY" = 0 ]; then
     ln -sfn "$CUDA_DIR" "$CUDA_LINK"
     # The backend shells out to `rustc --print sysroot` to find llvm-tools' llc.
-    # evcxr calls the nightly's rustc by absolute path, so that lookup hits the
-    # stable proxy on PATH and misses. Pin llc explicitly through a stable link.
-    ln -sfn "$NIGHTLY_LLC" "$INSTALL/bin/llc"
-    curl -fsSL -o "$INSTALL/helper/Cargo.toml" "${BASE_URL}/crates/colab-cuda-oxide/Cargo.toml"
-    curl -fsSL -o "$INSTALL/helper/src/lib.rs" "${BASE_URL}/crates/colab-cuda-oxide/src/lib.rs"
+    # evcxr calls the pinned toolchain's rustc by absolute path, so that lookup
+    # hits the default stable proxy on PATH and misses. Pin llc through a link.
+    ln -sfn "$TOOLCHAIN_LLC" "$INSTALL/bin/llc"
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${CLANG_MAJOR} 100 >/dev/null
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${CLANG_MAJOR} 100 >/dev/null
     mkdir -p "$(dirname "$LINK")" && ln -sfn "$INSTALL" "$LINK"
@@ -283,17 +287,17 @@ done
 ok "CUDA $("$CUDA_DIR/bin/nvcc" --version | sed -n 's/.*release \([0-9.]*\),.*/\1/p'): cuda.h, curand.h, nvcc, libNVVM, nvJitLink, libdevice"
 [ -r "$(clang-${CLANG_MAJOR} -print-resource-dir)/include/stddef.h" ] || die "clang-${CLANG_MAJOR} resource headers missing (libclang-common-${CLANG_MAJOR}-dev)"
 ok "clang-${CLANG_MAJOR} $(clang-${CLANG_MAJOR} --version | sed -n '1s/.*version \([0-9.]*\).*/\1/p')"
-[ -x "$NIGHTLY_LLC" ] || die "llc missing from the nightly's llvm-tools component: $NIGHTLY_LLC"
-[ "$(readlink -f "$INSTALL/bin/llc")" = "$(readlink -f "$NIGHTLY_LLC")" ] || die "$INSTALL/bin/llc does not point at the nightly's llc"
-ok "llc: $("$INSTALL/bin/llc" --version | sed -n 's/^ *LLVM version //p' | awk 'NR==1') (nightly llvm-tools)"
+[ -x "$TOOLCHAIN_LLC" ] || die "llc missing from the toolchain's llvm-tools component: $TOOLCHAIN_LLC"
+[ "$(readlink -f "$INSTALL/bin/llc")" = "$(readlink -f "$TOOLCHAIN_LLC")" ] || die "$INSTALL/bin/llc does not point at the toolchain's llc"
+ok "llc: $("$INSTALL/bin/llc" --version | sed -n 's/^ *LLVM version //p' | awk 'NR==1') (Rust ${CHANNEL} llvm-tools)"
 [ "$(readlink -f "$LINK")" = "$INSTALL" ] || die "$LINK does not point at $INSTALL"
 backend_ready || die "backend not installed under $INSTALL (bin/cargo-oxide, lib/librustc_codegen_cuda.so, manifest.json)"
-[ -f "$INSTALL/helper/src/lib.rs" ] || die "helper crate missing under $INSTALL/helper"
-# Run doctor from the checkout (it wants rust-toolchain.toml there) but call
-# the installed binary directly: inside the checkout `cargo oxide` is a
-# workspace alias that would rebuild cargo-oxide from source.
+[ -d "$OXIDE_SRC/crates/cuda-host" ] && [ -d "$SRC/cuda-core" ] || die "checkout under $SRC lacks cuda-oxide/crates/cuda-host or cuda-core"
+# Run doctor from the cuda-oxide workspace (it wants rust-toolchain.toml
+# there) but call the installed binary directly: inside the workspace
+# `cargo oxide` is an alias that would rebuild cargo-oxide from source.
 DOCTOR_LOG="$INSTALL/logs/doctor.log"; [ "$VERIFY_ONLY" = 0 ] || DOCTOR_LOG=$(mktemp)
-( cd "$SRC" && CUDA_OXIDE_BACKEND="$BACKEND" "$INSTALL/bin/cargo-oxide" doctor >"$DOCTOR_LOG" 2>&1 ) \
+( cd "$OXIDE_SRC" && CUDA_OXIDE_BACKEND="$BACKEND" CUDA_OXIDE_LLC="$INSTALL/bin/llc" "$INSTALL/bin/cargo-oxide" doctor >"$DOCTOR_LOG" 2>&1 ) \
     || { cat "$DOCTOR_LOG"; die "cargo oxide doctor failed"; }
 ok "cargo oxide doctor: $(grep -c '✓' "$DOCTOR_LOG") checks passed"
 ok "cuda-oxide ready in $(elapsed) at $LINK"
@@ -303,9 +307,10 @@ cat <<EOT
 Next: run the notebook's "Configure %%rust" cell. It needs these values:
 
     :toolchain ${CHANNEL}
-    :build_env RUSTFLAGS=-Cprefer-dynamic -Zcodegen-backend=${LINK}/lib/librustc_codegen_cuda.so -Zalways-encode-mir -Csymbol-mangling-version=v0
+    :build_env RUSTC_BOOTSTRAP=1
+    :build_env RUSTFLAGS=-Cprefer-dynamic -Zcodegen-backend=${LINK}/lib/librustc_codegen_cuda.so -Zmir-enable-passes=-JumpThreading -Zalways-encode-mir -Csymbol-mangling-version=v0 -Cdebug-assertions=off -Coverflow-checks=off
     :build_env CUDA_OXIDE_LLC=${LINK}/bin/llc
-    :dep cuda-device = { path = "${LINK}/src/crates/cuda-device" }
-    :dep cuda-host = { path = "${LINK}/src/crates/cuda-host" }
-    :dep colab-cuda-oxide = { path = "${LINK}/helper" }
+    :dep cuda-core = { path = "${LINK}/src/cuda-core" }
+    :dep cuda-device = { path = "${LINK}/src/cuda-oxide/crates/cuda-device" }
+    :dep cuda-host = { path = "${LINK}/src/cuda-oxide/crates/cuda-host" }
 EOT
