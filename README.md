@@ -200,7 +200,7 @@ The prebuilt is compiled on Ubuntu 22.04 against glibc 2.35, so it runs on any n
 - [x] v0.2.0 — `cuda-oxide` kernels inside `%%rust` cells on T4 (`setup-cuda-oxide.sh`, `examples/04_cuda_oxide.ipynb`)
 - [ ] `target/` Drive cache helper
 - [x] Upstream path-aware loader in cuda-oxide (merged 2026-09-23)
-- [ ] v0.3.0 — cuda-oxide pin in the cuda-rust era (stable 1.99.1, nested layout), loader crate retired
+- [x] v0.3.0 — cuda-oxide pin in the cuda-rust era (stable 1.99.1, nested layout), loader crate retired, every Colab GPU accepted
 - [ ] cuda-oxide measured on the H100; the script already accepts it
 
 See [open issues](https://github.com/xavierforge/colab-rust/issues) for
