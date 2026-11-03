@@ -2,16 +2,20 @@
 # colab-rust setup v0.3.0
 # https://github.com/xavierforge/colab-rust
 #
-# Prebuilt: evcxr_jupyter 0.22.0 (built 2026-09-01 on ubuntu-22.04 / glibc 2.35;
-# verified on Colab Ubuntu 22.04.5, Rust stable 1.98, install 16-18s).
-#
 # Installs Rust + evcxr_jupyter into a Colab session.
-# Tries prebuilt binary first, falls back to source compile.
+# Tries the prebuilt binary first (built weekly on ubuntu-22.04 / glibc 2.35
+# and published to the prebuilt-latest release with a manifest that records
+# the evcxr_jupyter version, the rustc it was built with and the tarball's
+# sha256; the tarball is checked against it before it is installed), and
+# falls back to a source compile.
 # Self-bootstraps colab_rust.py so the user only needs one download.
 # Idempotent: safe to re-run within the same session.
 #
 # Pin to a specific version:
 #   COLAB_RUST_REF=v0.3.0 bash setup.sh
+#
+# COLAB_RUST_PREBUILT_BASE_URL overrides where the tarball and its manifest
+# are fetched from (CI points it at a file:// directory holding a fresh build).
 
 set -euo pipefail
 trap 'echo "❌ setup.sh aborted at line $LINENO: $BASH_COMMAND (exit $?)" >&2' ERR
@@ -27,7 +31,9 @@ BASE_URL="https://raw.githubusercontent.com/${REPO}/${REF}"
 PREBUILT_UBUNTU="22.04"   # image the prebuilt is compiled on
 MIN_GLIBC="2.35"          # what that binary needs; newer is fine
 PREBUILT_NAME="evcxr_jupyter-ubuntu22.04-glibc2.35.tar.gz"
-PREBUILT_URL="https://github.com/${REPO}/releases/download/prebuilt-latest/${PREBUILT_NAME}"
+PREBUILT_BASE_URL="${COLAB_RUST_PREBUILT_BASE_URL:-https://github.com/${REPO}/releases/download/prebuilt-latest}"
+PREBUILT_URL="${PREBUILT_BASE_URL}/${PREBUILT_NAME}"
+MANIFEST_URL="${PREBUILT_BASE_URL}/${PREBUILT_NAME%.tar.gz}.manifest.json"
 
 log "colab-rust setup (ref: ${REF})"
 
@@ -66,21 +72,60 @@ fi
 ok "Rust $RUST_VERSION"
 
 # ---------- 2. evcxr_jupyter: try prebuilt, fall back to source ----------
+# Check the tarball at $1 against the manifest at $2: schema, sha256 and
+# size. Prints a one-line description of the build on success.
+verify_prebuilt() {
+    python3 - "$1" "$2" "$PREBUILT_NAME" <<'PY'
+import hashlib, json, os, sys
+tarball, manifest_path, name = sys.argv[1:]
+try:
+    m = json.load(open(manifest_path))
+except Exception as e:
+    print(f"manifest unreadable: {e}", file=sys.stderr); sys.exit(1)
+problems = []
+if m.get("schema_version") != 1: problems.append(f"schema_version {m.get('schema_version')!r} != 1")
+entry = m.get("files", {}).get(name)
+if not entry:
+    problems.append(f"manifest has no entry for {name}")
+else:
+    if os.path.getsize(tarball) != entry.get("bytes"): problems.append("tarball size differs from manifest")
+    digest = hashlib.sha256(open(tarball, "rb").read()).hexdigest()
+    if digest != entry.get("sha256"): problems.append("tarball sha256 differs from manifest")
+if problems:
+    print("; ".join(problems), file=sys.stderr); sys.exit(1)
+rustc = next((l.split(": ", 1)[1] for l in m.get("rustc_vV", "").splitlines() if l.startswith("release: ")), "?")
+print(f"evcxr_jupyter {m.get('evcxr_jupyter_version', '?')}, built {m.get('created_at', '?')[:10]} on {m.get('built_on', '?')} with rustc {rustc}")
+PY
+}
+
 if [ ! -x "$HOME/.cargo/bin/evcxr_jupyter" ]; then
     log "Attempting prebuilt evcxr_jupyter download..."
+    rm -f /tmp/evcxr.tar.gz /tmp/evcxr.manifest.json
     if curl -fsSL "$PREBUILT_URL" -o /tmp/evcxr.tar.gz 2>/dev/null; then
-        mkdir -p "$HOME/.cargo/bin"
-        tar xzf /tmp/evcxr.tar.gz -C "$HOME/.cargo/bin"
-        chmod +x "$HOME/.cargo/bin/evcxr_jupyter"
-        rm /tmp/evcxr.tar.gz
-
-        # glibc compatibility check: --help should succeed quickly
-        if "$HOME/.cargo/bin/evcxr_jupyter" --help >/dev/null 2>&1; then
-            ok "Installed prebuilt evcxr_jupyter"
+        PREBUILT_OK=1
+        if curl -fsSL "$MANIFEST_URL" -o /tmp/evcxr.manifest.json 2>/dev/null; then
+            if BUILD_INFO=$(verify_prebuilt /tmp/evcxr.tar.gz /tmp/evcxr.manifest.json 2>/tmp/evcxr.verify.err); then
+                ok "Prebuilt verified against its manifest: $BUILD_INFO"
+            else
+                warn "Prebuilt rejected: $(cat /tmp/evcxr.verify.err). Falling back to source compile."
+                PREBUILT_OK=0
+            fi
         else
-            warn "Prebuilt binary failed to run, removing and falling back."
-            rm -f "$HOME/.cargo/bin/evcxr_jupyter"
+            warn "No manifest next to the prebuilt; installing it unverified."
         fi
+        if [ "$PREBUILT_OK" = 1 ]; then
+            mkdir -p "$HOME/.cargo/bin"
+            tar xzf /tmp/evcxr.tar.gz -C "$HOME/.cargo/bin"
+            chmod +x "$HOME/.cargo/bin/evcxr_jupyter"
+            # glibc compatibility check: --help should succeed quickly
+            if "$HOME/.cargo/bin/evcxr_jupyter" --help >/dev/null 2>&1; then
+                ok "Installed prebuilt evcxr_jupyter"
+            else
+                warn "Prebuilt binary failed to run, removing and falling back."
+                rm -f "$HOME/.cargo/bin/evcxr_jupyter"
+            fi
+        fi
+        rm -f /tmp/evcxr.tar.gz /tmp/evcxr.manifest.json /tmp/evcxr.verify.err
     else
         warn "Prebuilt unavailable, falling back to source compile."
     fi
