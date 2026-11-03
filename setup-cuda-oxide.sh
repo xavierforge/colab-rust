@@ -32,8 +32,8 @@
 #
 # Supported: Google Colab, Ubuntu 24.04, CUDA 13.4, any GPU with compute
 # capability 7.0 or newer on a 580+ driver. Measured end to end on the Tesla
-# T4 (sm_75) and the RTX PRO 6000 Blackwell (sm_120a); other Colab GPUs are
-# accepted with a warning until they have been. Anything else fails early with
+# T4 (sm_75), the L4 (sm_89) and the RTX PRO 6000 Blackwell (sm_120a); other
+# Colab GPUs are accepted with a warning until they have been. Anything else fails early with
 # a clear message instead of guessing.
 
 set -euo pipefail
@@ -101,7 +101,7 @@ CC_MAJOR=${BASH_REMATCH[1]}; CC_MINOR=${BASH_REMATCH[2]}
 if [ "$CC_MAJOR" -ge 9 ]; then TARGET="sm_${CC_MAJOR}${CC_MINOR}a"; else TARGET="sm_${CC_MAJOR}${CC_MINOR}"; fi
 TARGET="${COLAB_CUDA_OXIDE_TARGET:-$TARGET}"
 case "$GPU_NAME" in
-    *T4*|*"RTX PRO 6000"*) ok "$GPU_NAME (compute capability $COMPUTE_CAP), driver $DRIVER, target $TARGET" ;;
+    *T4*|*L4*|*"RTX PRO 6000"*) ok "$GPU_NAME (compute capability $COMPUTE_CAP), driver $DRIVER, target $TARGET" ;;
     *) warn "$GPU_NAME (compute capability $COMPUTE_CAP), driver $DRIVER, target $TARGET: not yet measured on this GPU, proceeding" ;;
 esac
 # shellcheck disable=SC1091
