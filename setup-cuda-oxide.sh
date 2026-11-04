@@ -161,29 +161,42 @@ if p:
 PY
 }
 
-# Upsert CUDA_OXIDE_TARGET into the [env] table of the cargo config at $1,
-# leaving everything else in the file as it was.
-set_cargo_env_target() {
+# Upsert into the cargo config at $1 (created if missing):
+#   [env] CUDA_OXIDE_TARGET = $2, the PTX target, which reaches every rustc
+#   that cargo starts, %%rust cell builds included;
+#   [profile.dev.package."*"] incremental = false, so cargo compiles the
+#   dependencies (cuda-rust's path crates included) without -C incremental,
+#   which is what lets evcxr's :cache keep them between sessions. The cell
+#   crate itself stays incremental, so evcxr never caches it (a cached cell
+#   would be loaded in place of the next one).
+# Lines written here carry a marker comment and are replaced on re-run;
+# everything else in the file is kept, and the result is parse-checked.
+set_cargo_config() {
     mkdir -p "$(dirname "$1")"
     python3 - "$1" "$2" <<'PY'
 import re, sys, tomllib
 path, target = sys.argv[1:]
+MARK = "# set by colab-rust setup-cuda-oxide.sh"
 try:
     text = open(path).read()
 except FileNotFoundError:
     text = ""
-line = f'CUDA_OXIDE_TARGET = "{target}"  # set by colab-rust setup-cuda-oxide.sh from the GPU\n'
-lines = [l for l in text.splitlines(keepends=True) if not re.match(r"\s*CUDA_OXIDE_TARGET\s*=", l)]
-for i, l in enumerate(lines):
-    if re.match(r"\s*\[env\]\s*(#.*)?$", l):
-        lines.insert(i + 1, line); break
-else:
+lines = [l for l in text.splitlines(keepends=True)
+         if MARK not in l and not re.match(r"\s*CUDA_OXIDE_TARGET\s*=", l)]
+def upsert(header, line):
+    pat = re.compile(r"\s*\[" + re.escape(header) + r"\]\s*(#.*)?$")
+    for i, l in enumerate(lines):
+        if pat.match(l):
+            lines.insert(i + 1, line); return
     if lines and not lines[-1].endswith("\n"): lines.append("\n")
     if lines: lines.append("\n")
-    lines += ["[env]\n", line]
+    lines.extend([f"[{header}]\n", line])
+upsert("env", f'CUDA_OXIDE_TARGET = "{target}"  {MARK} from the GPU\n')
+upsert('profile.dev.package."*"', f"incremental = false  {MARK} so evcxr's :cache can keep dependencies\n")
 new = "".join(lines)
 parsed = tomllib.loads(new)
 assert parsed["env"]["CUDA_OXIDE_TARGET"] == target, parsed
+assert parsed["profile"]["dev"]["package"]["*"]["incremental"] is False, parsed
 open(path, "w").write(new)
 PY
 }
@@ -322,7 +335,7 @@ if [ "$VERIFY_ONLY" = 0 ]; then
     # launches, evcxr's cell builds included, so the backend sees the target
     # without the notebook naming it. Keep any existing config intact; only
     # this one key is managed.
-    set_cargo_env_target "$HOME/.cargo/config.toml" "$TARGET"
+    set_cargo_config "$HOME/.cargo/config.toml" "$TARGET"
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${CLANG_MAJOR} 100 >/dev/null
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${CLANG_MAJOR} 100 >/dev/null
     mkdir -p "$(dirname "$LINK")" && ln -sfn "$INSTALL" "$LINK"
@@ -340,9 +353,12 @@ ok "clang-${CLANG_MAJOR} $(clang-${CLANG_MAJOR} --version | sed -n '1s/.*version
 [ "$(readlink -f "$INSTALL/bin/llc")" = "$(readlink -f "$TOOLCHAIN_LLC")" ] || die "$INSTALL/bin/llc does not point at the toolchain's llc"
 ok "llc: $("$INSTALL/bin/llc" --version | sed -n 's/^ *LLVM version //p' | awk 'NR==1') (Rust ${CHANNEL} llvm-tools)"
 [ "$(readlink -f "$LINK")" = "$INSTALL" ] || die "$LINK does not point at $INSTALL"
-CFG_TARGET=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb")).get("env", {}).get("CUDA_OXIDE_TARGET", ""))' "$HOME/.cargo/config.toml" 2>/dev/null || true)
-[ "$CFG_TARGET" = "$TARGET" ] || die "~/.cargo/config.toml does not carry CUDA_OXIDE_TARGET=$TARGET (found '$CFG_TARGET')"
+CFG=$(python3 -c 'import sys, tomllib
+c = tomllib.load(open(sys.argv[1], "rb"))
+print(c.get("env", {}).get("CUDA_OXIDE_TARGET", ""), c.get("profile", {}).get("dev", {}).get("package", {}).get("*", {}).get("incremental", ""))' "$HOME/.cargo/config.toml" 2>/dev/null || true)
+[ "$CFG" = "$TARGET False" ] || die "~/.cargo/config.toml does not carry CUDA_OXIDE_TARGET=$TARGET and the dependency profile override (found '$CFG')"
 ok "CUDA_OXIDE_TARGET=$TARGET in ~/.cargo/config.toml (applies to every cargo build, %%rust cells included)"
+ok "dependencies build non-incrementally (~/.cargo/config.toml), so a %%rust :cache can keep them between sessions"
 backend_ready || die "backend not installed under $INSTALL (bin/cargo-oxide, lib/librustc_codegen_cuda.so, manifest.json)"
 [ -d "$OXIDE_SRC/crates/cuda-host" ] && [ -d "$SRC/cuda-core" ] || die "checkout under $SRC lacks cuda-oxide/crates/cuda-host or cuda-core"
 # Run doctor from the cuda-oxide workspace (it wants rust-toolchain.toml
