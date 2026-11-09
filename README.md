@@ -205,7 +205,7 @@ The prebuilt is compiled on Ubuntu 22.04 against glibc 2.35, so it runs on any n
 - [x] v0.1.2 to v0.1.4 — Real interrupt, build progress, rich output, separate stderr
 - [x] `cudarc` GPU quickstart (`examples/03_cudarc_gpu.ipynb`)
 - [x] v0.2.0 — `cuda-oxide` kernels inside `%%rust` cells on T4 (`setup-cuda-oxide.sh`, `examples/04_cuda_oxide.ipynb`)
-- [x] Compile cache on Google Drive for the cuda-oxide configuration cell (`examples/05_cuda_oxide_drive_cache.ipynb`, 2026-11-09); Cargo projects keep the `target/` archive recipe
+- [x] v0.3.1 — Compile cache on Google Drive for the cuda-oxide configuration cell (`examples/05_cuda_oxide_drive_cache.ipynb`, 2026-11-09); Cargo projects keep the `target/` archive recipe
 - [x] Upstream path-aware loader in cuda-oxide (merged 2026-09-23)
 - [x] v0.3.0 — cuda-oxide pin in the cuda-rust era (stable 1.99.1, nested layout), loader crate retired, every Colab GPU accepted
 - [ ] cuda-oxide measured on the H100; the script already accepts it
