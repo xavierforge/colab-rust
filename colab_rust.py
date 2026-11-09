@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import queue
 import atexit
+import os
 import re
 import subprocess
 import sys
@@ -46,6 +47,17 @@ _PROGRESS_AFTER_QUIET_S = 3  # cells that finish faster than this show no progre
 # eprintln! right before the cell ends can reach iopub after the idle status.
 # Keep reading for this long after idle (extended by every late message).
 _POST_IDLE_GRACE_S = 0.2
+
+# evcxr builds cells inside a scratch crate. Left to itself it picks a fresh
+# random /tmp/.tmpXXXXXX per kernel; EVCXR_TMPDIR pins the path and evcxr then
+# leaves the directory in place. A path that is the same in every session
+# keeps cargo's fingerprints valid for dependencies restored from evcxr's
+# compile cache (:cache): a crate whose sources include files from its
+# OUT_DIR, as cuda-bindings does, records that absolute path in its dep-info,
+# and under a random directory the next session would find the files missing
+# and rebuild the crate and everything above it on every cell. Users who set
+# EVCXR_TMPDIR themselves keep their value.
+_SKETCH_DIR = "/tmp/colab-rust/evcxr"
 
 # evcxr forwards cargo's "Compiling <crate> <version>" lines (and only those)
 # to its own stderr while a cell builds.
@@ -116,8 +128,10 @@ class _RustSession:
     def ensure_started(self):
         if self.km is not None:
             return
+        os.environ.setdefault("EVCXR_TMPDIR", _SKETCH_DIR)
+        os.makedirs(os.environ["EVCXR_TMPDIR"], exist_ok=True)
         km = KernelManager(kernel_name="rust")
-        km.start_kernel(stderr=subprocess.PIPE)
+        km.start_kernel(stderr=subprocess.PIPE)  # the kernel inherits os.environ
         self._kernel_stderr = queue.Queue()
         threading.Thread(
             target=self._pump_stderr,
