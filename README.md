@@ -147,8 +147,9 @@ Approximate cold-build times on Colab T4:
 | `candle-core` (default features) | ~11min     | Compiles GGUF / flash-attn kernels too |
 | `tch-rs` (libtorch)              | ~3min      | Downloads prebuilt libtorch            |
 
-Cache your `target/` directory to Google Drive to skip rebuilds on
-cold-start sessions:
+For a Cargo project, archive `target/` to Google Drive and unpack it in
+the next session; the dependencies come back fresh and only the project's
+own crates recompile:
 
 ```python
 from google.colab import drive
@@ -162,6 +163,8 @@ drive.mount('/content/drive')
 !tar xzf /content/drive/MyDrive/colab-rust-cache/target.tar.gz \
     -C /content/myproject
 ```
+
+For `%%rust` cells the same job is done by evcxr's compile cache; the cuda-oxide section below has the numbers and [examples/05_cuda_oxide_drive_cache.ipynb](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/05_cuda_oxide_drive_cache.ipynb) the cells.
 
 [examples/03_cudarc_gpu.ipynb](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/03_cudarc_gpu.ipynb) compiles a CUDA kernel with nvrtc and launches it from a `%%rust` cell on a T4: `:dep cudarc` builds in 10 s, the kernel adds a million floats in 2 s wall time including the PTX compile.
 
@@ -181,12 +184,15 @@ A worked candle GPU example is still on the roadmap.
 
 Measured on fresh sessions (2026-11-03): on a Tesla T4 the script took 92 to 94 s and the configuration cell that pulls in cuda-oxide's crates 97 to 105 s for 41 crates (two runs), on an A100 87 s and 40 s, on an RTX PRO 6000 Blackwell 40 s and 18 s (one run each); a kernel then compiles and runs in a few seconds on any of them. That is about 3.5 minutes from a blank T4 runtime to the first launch, the same as at the previous pin (2026-09-16). The script installs a minimal CUDA 13.4 toolkit (740 MB), clang-21, the stable Rust that cuda-oxide pins (1.99.1 with rustc-dev and llvm-tools), an exact cuda-rust checkout, and a prebuilt codegen backend from this repository's releases (source build as fallback, about 5 minutes more). It derives the PTX target from the GPU's compute capability; the T4, L4, A100 and RTX PRO 6000 are the measured cards, the H100 is accepted with a warning until it is; the target goes into `~/.cargo/config.toml`, so the notebook is the same on every card. Ubuntu 24.04 is the only image it accepts.
 
+The configuration cell's build can be kept on your Drive. [examples/05_cuda_oxide_drive_cache.ipynb](https://colab.research.google.com/github/xavierforge/colab-rust/blob/main/examples/05_cuda_oxide_drive_cache.ipynb) is the same walk-through with evcxr's compile cache (`:cache`) around it: the first session saves `~/.cache/evcxr` to Drive as one tar archive (305 MiB at the current pin on a T4, 3 s), later sessions unpack it (3 s) and the configuration cell takes 30 s instead of 106 s (T4, 2026-11-09, one run each); mounting Drive costs about 20 s on top, consent dialog included. Two details make it work, both arranged by the setup: dependencies build without `-C incremental` (`~/.cargo/config.toml`), which is evcxr's condition for caching a crate while the cell itself stays uncached, and `colab_rust` starts evcxr in a fixed scratch directory, so the paths cargo records for generated files are the same in every session. The archive is per pin and per GPU target; the kernel cell is unaffected either way (8 s on a T4).
+
 What is pinned: cuda-oxide commit `cced2a35` (2026-11-02) of NVIDIA/cuda-rust, Rust 1.99.1, CUDA 13.4; `cuda-core` comes from the same checkout. cuda-oxide is alpha software and moves fast; bumps are deliberate and re-tested. `COLAB_CUDA_OXIDE_REF` overrides the commit if you want to try a newer one. Commits from before cuda-oxide moved into cuda-rust (2026-09-30) are refused; v0.2.0 of this repository covers those.
 
 ## Tested on
 
 - Colab free tier, CPU and T4 runtimes, on the Ubuntu 24.04 image (glibc 2.39, CUDA 12.8, driver 580) as of 2026-09-10; the 22.04-built prebuilt runs on it unchanged. Also verified on the previous 22.04.5 image (glibc 2.35) through 2026-09-04.
 - On the T4: cudarc kernel launch from a `%%rust` cell, a candle CUDA matmul from a Cargo project, and cuda-oxide `#[kernel]` compilation and launch inside `%%rust` cells (2026-11-03, current pin, Rust 1.99.1)
+- On the T4: the Drive round trip of `examples/05_cuda_oxide_drive_cache.ipynb`, configuration cell 106 s cold and 30 s from the restored cache (2026-11-09)
 - On the L4 (sm_89), the A100 (sm_80) and the RTX PRO 6000 Blackwell (sm_120a), driver 580.82: cuda-oxide `#[kernel]` compilation and launch inside `%%rust` cells (2026-11-03, current pin)
 - evcxr_jupyter 0.22.0
 - Rust stable (1.98 at last verification; the source fallback needs ≥ 1.95, evcxr's MSRV)
@@ -199,7 +205,7 @@ The prebuilt is compiled on Ubuntu 22.04 against glibc 2.35, so it runs on any n
 - [x] v0.1.2 to v0.1.4 — Real interrupt, build progress, rich output, separate stderr
 - [x] `cudarc` GPU quickstart (`examples/03_cudarc_gpu.ipynb`)
 - [x] v0.2.0 — `cuda-oxide` kernels inside `%%rust` cells on T4 (`setup-cuda-oxide.sh`, `examples/04_cuda_oxide.ipynb`)
-- [ ] `target/` Drive cache helper
+- [x] Compile cache on Google Drive for the cuda-oxide configuration cell (`examples/05_cuda_oxide_drive_cache.ipynb`, 2026-11-09); Cargo projects keep the `target/` archive recipe
 - [x] Upstream path-aware loader in cuda-oxide (merged 2026-09-23)
 - [x] v0.3.0 — cuda-oxide pin in the cuda-rust era (stable 1.99.1, nested layout), loader crate retired, every Colab GPU accepted
 - [ ] cuda-oxide measured on the H100; the script already accepts it
