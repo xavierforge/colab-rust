@@ -209,7 +209,7 @@ The prebuilt is compiled on Ubuntu 22.04 against glibc 2.35, so it runs on any n
 - [x] v0.3.1 — Compile cache on Google Drive for the cuda-oxide configuration cell (`examples/05_cuda_oxide_drive_cache.ipynb`, 2026-11-09); Cargo projects keep the `target/` archive recipe
 - [x] Upstream path-aware loader in cuda-oxide (merged 2026-09-23)
 - [x] v0.3.0 — cuda-oxide pin in the cuda-rust era (stable 1.99.1, nested layout), loader crate retired, every Colab GPU accepted
-- [x] cuda-oxide measured on the H100 (2026-11-09); every Colab GPU on offer has now been run
+- [x] v0.3.2 — cuda-oxide measured on the H100 (2026-11-09); every Colab GPU on offer has now been run
 
 See [open issues](https://github.com/xavierforge/colab-rust/issues) for
 detail.

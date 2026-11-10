@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# colab-rust setup v0.3.1
+# colab-rust setup v0.3.2
 # https://github.com/xavierforge/colab-rust
 #
 # Installs Rust + evcxr_jupyter into a Colab session.
@@ -12,7 +12,7 @@
 # Idempotent: safe to re-run within the same session.
 #
 # Pin to a specific version:
-#   COLAB_RUST_REF=v0.3.1 bash setup.sh
+#   COLAB_RUST_REF=v0.3.2 bash setup.sh
 #
 # COLAB_RUST_PREBUILT_BASE_URL overrides where the tarball and its manifest
 # are fetched from (CI points it at a file:// directory holding a fresh build).
